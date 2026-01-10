@@ -754,6 +754,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 10px;
+    /* border-top: solid 2px #6421ff; */
 }
 
 .obra-title2 {
