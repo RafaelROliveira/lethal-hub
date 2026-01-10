@@ -181,6 +181,8 @@ export function DashboardPage() {
 
     const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+    const statsRowRef = useRef<HTMLElement | null>(null);
+
     // ====== ESC + scroll lock (para QUALQUER modal aberto) ======
     const anyModalOpen = !!obraEditando || showAddModal;
     useBodyScrollLock(anyModalOpen);
@@ -195,8 +197,17 @@ export function DashboardPage() {
 
     // mobile (esconder stats ao descer)
     useEffect(() => {
-        const el = document.querySelector(".stats-row");
+        if (tab !== "LISTA") return;
+
+        const el = statsRowRef.current;
         if (!el) return;
+
+        // só no mobile (mesma largura do seu CSS @media 720px)
+        const isMobile = window.matchMedia("(max-width: 720px)").matches;
+        if (!isMobile) return;
+
+        // garante estado limpo ao entrar
+        el.classList.remove("is-hidden");
 
         let lastY = window.scrollY;
 
@@ -211,8 +222,17 @@ export function DashboardPage() {
         };
 
         window.addEventListener("scroll", onScroll, { passive: true });
-        return () => window.removeEventListener("scroll", onScroll);
-    }, []);
+
+        // aplica uma vez pra ficar consistente ao entrar na tela
+        onScroll();
+
+        return () => {
+            window.removeEventListener("scroll", onScroll);
+            // limpa ao sair da LISTA (evita voltar bugado)
+            el.classList.remove("is-hidden");
+        };
+    }, [tab]);
+
 
     // carregar obras do localStorage
     useEffect(() => {
@@ -971,7 +991,7 @@ export function DashboardPage() {
                 {tab === "LISTA" && (
                     <>
                         {/* Contadores */}
-                        <section className="stats-row">
+                        <section className="stats-row" ref={statsRowRef as React.RefObject<HTMLElement>}>
                             <div
                                 className={"stat-card stat-total " + (filtro === "TODOS" ? "is-active" : "")}
                                 role="button"
