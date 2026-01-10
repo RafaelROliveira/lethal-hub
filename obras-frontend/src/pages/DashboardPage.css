@@ -792,7 +792,7 @@ body {
     height: 28px;
     border-radius: 10px;
     border: none;
-    background:rgb(27, 27, 27);
+    background: rgb(27, 27, 27);
     color: var(--text);
     font-size: 18px;
     cursor: pointer;
@@ -909,25 +909,34 @@ body {
 .modal-overlay {
     position: fixed;
     inset: 0;
-    backdrop-filter: none;
     background: rgba(0, 0, 0, 0.70);
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 999;
+    z-index: 9999;
     padding: 14px;
+
+    /* IMPORTANTES p/ iOS */
+    overflow: hidden;
+    touch-action: none;
 }
 
 .modal-box {
     background: #1d1d1d;
-    padding: 1.2rem;
     border-radius: 16px;
     width: 420px;
     max-width: 100%;
     color: #fff;
-    border: 1px solid var(--line);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65);
+
+    /* scroll interno */
+    max-height: calc(100vh - 28px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    /* iOS */
 }
+
 
 .modal-field {
     display: flex;
@@ -1349,164 +1358,184 @@ body {
    ========================================================= */
 @media (max-width: 720px) {
 
-  /* NAV: no mobile pode subir junto com o scroll */
-  .topbar {
-    position: static; /* tira o sticky no celular */
-  }
+    /* NAV: no mobile pode subir junto com o scroll */
+    .topbar {
+        position: static;
+        /* tira o sticky no celular */
+    }
 
-  /* Nav direita: só ícones (sem texto) */
-  .topbar-right {
-    gap: 14px; /* menos espaço */
-  }
+    /* Nav direita: só ícones (sem texto) */
+    .topbar-right {
+        gap: 14px;
+        /* menos espaço */
+    }
 
-  .topbar-backup span,
-  .topbar-add span {
-    display: none !important; /* some texto */
-  }
+    .topbar-backup span,
+    .topbar-add span {
+        display: none !important;
+        /* some texto */
+    }
 
-  .topbar-backup,
-  .topbar-add,
-  .topbar-logout {
-    padding: 0 8px;  /* mais compacto */
-    height: 36px;
-  }
+    .topbar-backup,
+    .topbar-add,
+    .topbar-logout {
+        padding: 0 8px;
+        /* mais compacto */
+        height: 36px;
+    }
 
-  .topbar-backup img,
-  .topbar-add img,
-  .topbar-logout img {
-    width: 20px;
-  }
+    .topbar-backup img,
+    .topbar-add img,
+    .topbar-logout img {
+        width: 20px;
+    }
 
-  /* =======================================================
+    /* =======================================================
      FILTROS (ordem + busca + selects) em coluna
      ======================================================= */
 
-  /* se você estiver usando esse grid */
-  .filters-grid {
-    grid-template-columns: 1fr !important;
-    gap: 10px;
-  }
+    /* se você estiver usando esse grid */
+    .filters-grid {
+        grid-template-columns: 1fr !important;
+        gap: 10px;
+    }
 
-  .filters-block {
-    width: 100%;
-    justify-content: center;
-  }
+    .filters-block {
+        width: 100%;
+        justify-content: center;
+    }
 
-  /* deixa selects e busca em largura total */
-  .dia-select,
-  .status-select,
-  .tipo-select,
-  .sort-select {
-    width: 100%;
-    max-width: 520px;
-  }
+    /* deixa selects e busca em largura total */
+    .dia-select,
+    .status-select,
+    .tipo-select,
+    .sort-select {
+        width: 100%;
+        max-width: 520px;
+    }
 
-  .search-wrap {
-    width: 100%;
-    min-width: 0;
-    max-width: 520px;
-  }
+    .search-wrap {
+        width: 100%;
+        min-width: 0;
+        max-width: 520px;
+    }
 
-  /* =======================================================
+    /* =======================================================
      CARDS: 2 por linha
      ======================================================= */
-  .obras-list {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-    justify-items: stretch;
-    gap: 12px;
-  }
+    .obras-list {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        justify-items: stretch;
+        gap: 12px;
+    }
 
-  .obra-card {
-    max-width: none; /* ocupa a coluna */
-  }
+    .obra-card {
+        max-width: none;
+        /* ocupa a coluna */
+    }
 
-  /* capa continua proporcional */
-  .obra-cover {
-    aspect-ratio: 2 / 3; /* mantém pôster */
-  }
+    /* capa continua proporcional */
+    .obra-cover {
+        aspect-ratio: 2 / 3;
+        /* mantém pôster */
+    }
 
-  /* =======================================================
+    /* =======================================================
      "FILTROS DE STATUS" (stats) fixos embaixo no mobile
      - some no scroll down
      - volta no scroll up
      ======================================================= */
 
-  /* reserva espaço pra barra fixa não tampar conteúdo */
-  .dashboard-container {
-    padding-bottom: 90px; /* ajusta se precisar */
-  }
+    /* reserva espaço pra barra fixa não tampar conteúdo */
+    .dashboard-container {
+        padding-bottom: 90px;
+        /* ajusta se precisar */
+    }
 
-  
 
-  .stats-row {
-    position: fixed;
-    left: 50%;
-    transform: translateX(-50%);
-    bottom: 0;
-    z-index: 80;
 
-    width: min(560px, calc(100vw - 20px));
-    width: 100%;
-    margin: 0;
-    padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+    .stats-row {
+        position: fixed;
+        left: 50%;
+        transform: translateX(-50%);
+        bottom: 0;
+        z-index: 80;
 
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr)); /* 3 colunas => 2 linhas (6 itens) */
-    gap: 10px;
+        width: min(560px, calc(100vw - 20px));
+        width: 100%;
+        margin: 0;
+        padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
 
-    background: rgba(10, 10, 10, 0.92);
-    backdrop-filter: blur(14px);
-    /* border-radius: 16px 16px 0 0; */
-    /* border-top: 2px solid #6421ff; */
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        /* 3 colunas => 2 linhas (6 itens) */
+        gap: 10px;
 
-    transition: transform 500ms ease, opacity 500ms ease;
-  }
+        background: rgba(10, 10, 10, 0.92);
+        backdrop-filter: blur(14px);
+        /* border-radius: 16px 16px 0 0; */
+        /* border-top: 2px solid #6421ff; */
 
-  /* esconde/mostra via classe (JS) */
-  .stats-row.is-hidden {
-    transform: translateX(-50%) translateY(110%);
-    opacity: 0.2;
-    pointer-events: none;
-  }
+        transition: transform 500ms ease, opacity 500ms ease;
+    }
 
-  /* cards compactos e centralizados */
-  .stat-card {
-    width: 100%;
-    min-width: 0;
-    max-width: none;
-    padding: 10px 10px;
-    border-radius: 14px;
-    text-align: left;
-  }
+    /* esconde/mostra via classe (JS) */
+    .stats-row.is-hidden {
+        transform: translateX(-50%) translateY(110%);
+        opacity: 0.2;
+        pointer-events: none;
+    }
 
-  .stat-number {
-    font-size: 18px;
-  }
+    /* cards compactos e centralizados */
+    .stat-card {
+        width: 100%;
+        min-width: 0;
+        max-width: none;
+        padding: 10px 10px;
+        border-radius: 14px;
+        text-align: left;
+    }
 
-  .stat-label {
-    font-size: 11px;
-  }
+    .stat-number {
+        font-size: 18px;
+    }
 
-  .modal-overlay {
-    align-items: flex-end;      /* modal vem de baixo */
-    padding: 0;
-  }
+    .stat-label {
+        font-size: 11px;
+    }
 
-  .modal-box {
-    width: 100%;
-    border-radius: 18px 18px 0 0;
-    max-height: calc(100vh - 16px);
-    overflow: auto;
-    padding: 16px;
-    padding-bottom: calc(16px + env(safe-area-inset-bottom));
-  }
+    .modal-overlay {
+        align-items: flex-end;
+        justify-content: center;
+        padding: 0;
+    }
 
-  /* deixa a área de ações sempre visível e clean */
-  .modal-actions {
-    position: sticky;
-    bottom: 0;
-    background: #1d1d1d;
-    padding: 12px 0;
-    margin-top: 12px;
-  }
+    .modal-box {
+        width: 100%;
+        border-radius: 18px 18px 0 0;
+
+        max-height: calc(100vh - 12px);
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+
+        padding: 16px;
+        padding-bottom: calc(16px + env(safe-area-inset-bottom));
+    }
+
+    /* iPhone zoom fix */
+    .modal-box input,
+    .modal-box select,
+    .modal-box textarea {
+        font-size: 16px;
+    }
+
+    /* deixa os botões sempre acessíveis */
+    .modal-actions {
+        position: sticky;
+        bottom: 0;
+        background: #1d1d1d;
+        padding-top: 12px;
+        padding-bottom: 10px;
+        margin-top: 12px;
+    }
 }
