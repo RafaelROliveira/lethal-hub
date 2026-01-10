@@ -914,7 +914,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 60;
+    z-index: 999;
     padding: 14px;
 }
 
@@ -1485,5 +1485,28 @@ body {
 
   .stat-label {
     font-size: 11px;
+  }
+
+  .modal-overlay {
+    align-items: flex-end;      /* modal vem de baixo */
+    padding: 0;
+  }
+
+  .modal-box {
+    width: 100%;
+    border-radius: 18px 18px 0 0;
+    max-height: calc(100vh - 16px);
+    overflow: auto;
+    padding: 16px;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+
+  /* deixa a área de ações sempre visível e clean */
+  .modal-actions {
+    position: sticky;
+    bottom: 0;
+    background: #1d1d1d;
+    padding: 12px 0;
+    margin-top: 12px;
   }
 }
