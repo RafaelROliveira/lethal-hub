@@ -10,13 +10,30 @@ const app = express();
 
 app.use(express.json());
 
-const allowedOrigin = process.env.CORS_ORIGIN || "*";
+
+const allowedOrigins = (process.env.CORS_ORIGIN ?? "")
+  .split(",")
+  .map(s => s.trim())
+  .filter(Boolean);
 
 app.use(
   cors({
-    origin: allowedOrigin,
+    origin: (origin, cb) => {
+      // permite requests sem origin (ex: curl/postman)
+      if (!origin) return cb(null, true);
+
+      // se não definiu nada, libera tudo (não recomendo em prod)
+      if (allowedOrigins.length === 0) return cb(null, true);
+
+      if (allowedOrigins.includes(origin)) return cb(null, true);
+
+      return cb(new Error(`CORS bloqueado para: ${origin}`));
+    },
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+
 
 // rotas
 app.use("/auth", authRoutes);
