@@ -19,6 +19,11 @@ import { apiGetBackup, apiSaveBackup } from "../api/apiClient";
 import "./DashboardPage.css";
 
 import favIcon from "../assets/starL.png";
+
+import favIconOff from "../assets/favIconOffB.png";     // estrela vazia
+import favIconOn from "../assets/favIconOnB.png";    // estrela preenchida
+
+
 import editIcon from "../assets/icon-edit.png";
 import deleteIcon from "../assets/icon-delete.png";
 import viewIcon from "../assets/ler.png";
@@ -546,6 +551,7 @@ export function DashboardPage() {
                         <select value={tipo} onChange={(e) => setTipo(e.target.value as TipoObra)}>
                             <option value="ANIME">Anime</option>
                             <option value="MANGA">Mangá</option>
+                            <option value="MANHUA">Manhua</option>
                             <option value="SERIE">Série</option>
                             <option value="FILME">Filme</option>
                             <option value="NOVEL">Novel</option>
@@ -689,6 +695,7 @@ export function DashboardPage() {
                         <select value={tipo} onChange={(e) => setTipo(e.target.value as TipoObra)}>
                             <option value="ANIME">Anime</option>
                             <option value="MANGA">Mangá</option>
+                            <option value="MANHUA">Manhua</option>
                             <option value="SERIE">Série</option>
                             <option value="FILME">Filme</option>
                             <option value="NOVEL">Novel</option>
@@ -970,6 +977,7 @@ export function DashboardPage() {
                         aria-label="Sair"
                     >
                         <img src={sair} alt="" />
+                        <span>Sair</span>
                     </button>
                 </div>
             </header>
@@ -1101,7 +1109,7 @@ export function DashboardPage() {
                                         value={diaFiltro}
                                         onChange={(e) => setDiaFiltro(e.target.value)}
                                     >
-                                        <option value="TODOS">dia Nenhum</option>
+                                        <option value="TODOS">Todos os dias</option>
                                         <option value="SEGUNDA">Segunda</option>
                                         <option value="TERCA">Terça</option>
                                         <option value="QUARTA">Quarta</option>
@@ -1116,9 +1124,10 @@ export function DashboardPage() {
                                         value={tipoFiltro}
                                         onChange={(e) => setTipoFiltro(e.target.value as any)}
                                     >
-                                        <option value="TODOS">tipo Nenhum</option>
+                                        <option value="TODOS">Todos os tipos</option>
                                         <option value="ANIME">Anime</option>
                                         <option value="MANGA">Mangá</option>
+                                        <option value="MANHUA">Manhua</option>
                                         <option value="SERIE">Série</option>
                                         <option value="FILME">Filme</option>
                                         <option value="NOVEL">Novel</option>
@@ -1166,7 +1175,13 @@ export function DashboardPage() {
                                 <>
                                     <ul className="obras-list">
                                         {obrasVisiveis.map((obra) => (
-                                            <li key={obra.id} className="obra-card">
+                                            <li key={obra.id}
+                                                className={`obra-card status-card-${obra.status.toLowerCase()}`}
+                                                style={
+                                                    obra.imagemUrl
+                                                        ? ({ ["--cover-url" as any]: `url(${obra.imagemUrl})` } as React.CSSProperties)
+                                                        : undefined
+                                                }>
                                                 {/* CAPA */}
                                                 <div className="obra-cover">
                                                     {obra.imagemUrl && (
@@ -1175,6 +1190,7 @@ export function DashboardPage() {
                                                             alt={obra.titulo}
                                                             loading="lazy"
                                                             decoding="async"
+                                                            className="obra-cover-img"
                                                         />
                                                     )}
 
@@ -1214,18 +1230,19 @@ export function DashboardPage() {
                                                         </div>
                                                     </div>
 
-                                                    {/* FAVORITAR topo-direita */}
+                                                    {/* FAVORITO — bottom-left */}
                                                     <button
-                                                        className={"obra-fav-btn" + (obra.favorito ? " active" : "")}
+                                                        className={"obra-fav-btn-bottom-left" + (obra.favorito ? " active" : "")}
                                                         onClick={(e) => {
                                                             e.stopPropagation();
                                                             toggleFavorito(obra.id);
                                                         }}
                                                         type="button"
-                                                        title="Favoritar"
+                                                        title={obra.favorito ? "Remover dos favoritos" : "Adicionar aos favoritos"}
                                                     >
-                                                        <img src={favIcon} alt="Favorito" loading="lazy" decoding="async" />
+                                                        <img src={obra.favorito ? favIconOn : favIconOff} alt="Favorito" />
                                                     </button>
+
 
                                                     {/* NOTA bottom-right */}
                                                     {typeof obra.nota === "number" && (
