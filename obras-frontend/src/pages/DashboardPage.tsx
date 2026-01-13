@@ -18,7 +18,6 @@ import type { Obra, StatusObra, TipoObra, BackupData } from "../types/backup";
 import { apiGetBackup, apiSaveBackup } from "../api/apiClient";
 import "./DashboardPage.css";
 
-import favIcon from "../assets/starL.png";
 
 import favIconOff from "../assets/favIconOffB.png";     // estrela vazia
 import favIconOn from "../assets/favIconOnB.png";    // estrela preenchida
