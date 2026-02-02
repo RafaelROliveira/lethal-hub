@@ -5,7 +5,7 @@ import jwt from "jsonwebtoken";
 interface JwtPayload {
   userId: string;
   username: string;
-  role: "USER" | "ADMIN";
+  role: "USER" | "ADMIN" | "DEMO";
 }
 
 export interface AuthRequest extends Request {

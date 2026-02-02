@@ -11,10 +11,17 @@ router.use(authMiddleware);
 // POST /backup  -> salva/atualiza backup
 router.post("/", async (req: AuthRequest, res) => {
   const userId = req.user?.userId;
+  const role = req.user?.role;
   const { data } = req.body;
 
   if (!userId) {
     return res.status(401).json({ message: "Usuário não autenticado" });
+  }
+
+  if (role === "DEMO") {
+    return res
+      .status(403)
+      .json({ message: "Usuário de demonstração não pode salvar backup na nuvem" });
   }
 
   if (!data) {
