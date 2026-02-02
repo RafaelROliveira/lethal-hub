@@ -20,7 +20,7 @@ interface LoginBody {
   password: string;
 }
 
-function generateToken(userId: string, username: string, role: "USER" | "ADMIN") {
+function generateToken(userId: string, username: string, role: "USER" | "ADMIN" | "DEMO") {
   const secret = process.env.JWT_SECRET;
   if (!secret) {
     throw new Error("JWT_SECRET não configurado");
