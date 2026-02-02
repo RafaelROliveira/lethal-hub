@@ -61,3 +61,7 @@ Existe um usuário de demonstração para testes.
     npm install
     npm run dev
 
+## Autor
+
+Projeto desenvolvido por **Rafael R. Oliveira**  
+GitHub: https://github.com/RafaelROliveira
