@@ -31,7 +31,7 @@ https://lethal-hub.vercel.app/app
 
 Existe um usuário de demonstração para testes.
 
-:/ Observação:
+> Observação:
 - Usuários de demonstração possuem algumas limitações
 - Funcionalidades sensíveis (como backup em nuvem) podem estar restritas
 - Dados podem ser resetados periodicamente
