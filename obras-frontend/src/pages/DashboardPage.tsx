@@ -1362,11 +1362,11 @@ export function DashboardPage() {
                     </div>
 
                     <div className="footer-right">
-                        <a href="https://discord.gg/jNnF9kEE7X" target="_blank" rel="noreferrer">
+                        <a href="https://github.com/RafaelROliveira/lethal-hub" target="_blank" rel="noreferrer">
                             Documentação
                         </a>
 
-                        <a href="https://discord.gg/jNnF9kEE7X" target="_blank" rel="noreferrer">
+                        <a href="https://github.com/RafaelROliveira" target="_blank" rel="noreferrer">
                             Créditos
                         </a>
                     </div>

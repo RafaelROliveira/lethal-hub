@@ -570,7 +570,7 @@ body {
 .obra-card {
     width: 100%;
     max-width: var(--card-max);
-    min-width: var(--card-min);
+    /* min-width: var(--card-min); */
     /* garante limite mesmo se algo tentar esticar */
     height: auto;
     margin: auto;
@@ -632,6 +632,21 @@ body {
     transition: opacity 0.25s ease, filter 0.25s ease;
 }
 
+.status-card-dropado .obra-info::before{
+    transform: scaleY(-1) translateY(0px);
+    filter: blur(10px) grayscale(100%);
+}
+
+.obra-card.status-card-em_espera .obra-cover .obra-cover-img {
+    /* opacity: 0.35; */
+    filter:sepia(55%);
+    transition: opacity 0.25s ease, filter 0.25s ease;
+}
+
+.status-card-em_espera .obra-info::before{
+    transform: scaleY(-1) translateY(0px);
+    filter: blur(10px) sepia(55%);
+}
 
 /* Status + menu */
 .obra-status-area {
@@ -856,7 +871,7 @@ body {
 
     transform: scaleY(-1) translateY(0px);
     filter: blur(10px);
-    opacity: 0.10;
+    opacity: 0.20;
 
     /* corta qualquer bleed de blur na borda */
     /* clip-path: inset(20px round 0 0 var(--radius) var(--radius)); */
@@ -890,15 +905,24 @@ body {
 
 
 .obra-title2 {
-    text-align: center;
-    font-size: 15px;
-    font-weight: 900;
-    line-height: 1.2;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 900;
+
+  /* 2 linhas sempre */
+  line-height: 1.2;
+  min-height: calc(1.2em * 2); /* reserva 2 linhas */
+  
+  /* limitar a no máximo 2 linhas */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+
+  /* opcional: deixa “bonito” o corte */
+  text-overflow: ellipsis;
 }
+
 
 /* capítulos */
 .obra-chapters {
@@ -1252,7 +1276,7 @@ body {
     }
 
     .obra-card {
-        max-width: 520px;
+        /* max-width: 520px; */
         margin: 0 auto;
     }
 
