@@ -1,8 +1,8 @@
 # Lethal Hub
 
-Plataforma web para gerenciamento de obras (animes, séries, filmes e jogos), com sistema de status, favoritos e backup em nuvem.
+Plataforma web para gerenciamento de obras como animes, séries, filmes, mangás, novels e jogos, permitindo acompanhar progresso, capítulos, notas, favoritos e status personalizados.
 
-Projeto desenvolvido com foco em organização pessoal e estudo de arquitetura full stack.
+O projeto foi desenvolvido com foco em organização pessoal e estudo de arquitetura full stack, incluindo autenticação de usuários, backup em nuvem, sincronização automática entre dispositivos e persistência local para uso mais rápido e seguro.
 
 ## Tecnologias
 
@@ -10,12 +10,17 @@ Projeto desenvolvido com foco em organização pessoal e estudo de arquitetura f
 - React
 - TypeScript
 - Vite
+- Context API
+- CSS customizado
+- LocalStorage
 
 ### Backend
 - Node.js
 - Express
 - MongoDB
-- JWT (autenticação)
+- Mongoose
+- JWT
+- Bcrypt
 
 ### Deploy
 - Frontend: Vercel  
@@ -40,12 +45,15 @@ Existe um usuário de demonstração para testes.
 
 ## Funcionalidades
 
-- Login e autenticação
-- Cadastro e gerenciamento de obras
-- Sistema de status (assistindo, finalizado, dropado, etc)
-- Favoritos
-- Backup em nuvem por usuário
-- Interface responsiva (mobile first)
+- Login e cadastro com autenticação JWT
+- Sistema de favoritos
+- Filtros, ordenação e pesquisa
+- Controle de progresso e capítulos
+- Backup em nuvem
+- Sincronização automática entre dispositivos
+- Suporte a uso local e online
+- Interface responsiva adaptada para desktop e mobile
+- Tema dark com foco em usabilidade
 
 ---
 
