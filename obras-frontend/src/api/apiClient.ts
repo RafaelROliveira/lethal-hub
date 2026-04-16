@@ -1,3 +1,10 @@
+import type { BackupData } from "../types/backup";
+
+type BackupApiResponse = {
+  data: BackupData;
+  updatedAt: string;
+};
+
 // src/api/apiClient.ts
 const API_URL = import.meta.env.VITE_API_URL as string;
 
@@ -28,6 +35,11 @@ export interface AuthResponse {
   token: string;
   user: AuthUser;
 }
+
+type SaveBackupResponse = {
+  message: string;
+  updatedAt: string;
+};
 
 // headers como Record<string, string> para agradar o TS
 type JsonHeaders = Record<string, string>;
@@ -82,7 +94,9 @@ export async function apiRegister(
 }
 
 // backup – salvar
-export async function apiSaveBackup(backupData: unknown): Promise<void> {
+export async function apiSaveBackup(
+  backupData: unknown
+): Promise<SaveBackupResponse> {
   const headers: JsonHeaders = {
     "Content-Type": "application/json",
     ...getAuthHeaders(),
@@ -98,10 +112,13 @@ export async function apiSaveBackup(backupData: unknown): Promise<void> {
     const errorText = await res.text();
     throw new Error(errorText || "Erro ao salvar backup");
   }
+
+  const body = (await res.json()) as SaveBackupResponse;
+  return body;
 }
 
 // backup – restaurar
-export async function apiGetBackup(): Promise<unknown | null> {
+export async function apiGetBackup(): Promise<BackupApiResponse | null> {
   const headers: JsonHeaders = {
     "Content-Type": "application/json",
     ...getAuthHeaders(),
@@ -120,6 +137,6 @@ export async function apiGetBackup(): Promise<unknown | null> {
     throw new Error(errorText || "Erro ao buscar backup");
   }
 
-  const body = await res.json();
-  return (body as any)?.data ?? null;
+  const body = (await res.json()) as BackupApiResponse;
+  return body;
 }

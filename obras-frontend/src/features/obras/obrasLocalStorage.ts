@@ -25,11 +25,12 @@ export function saveObrasToLocal(userId: string, obras: Obra[]) {
 
 export function exportBackup(userId: string): BackupData {
   const obras = loadObrasFromLocal(userId);
-  const backup: BackupData = {
+
+  return {
     version: 1,
-    obras,
+    updatedAt: new Date().toISOString(),
+    obras
   };
-  return backup;
 }
 
 export function importBackup(userId: string, backup: BackupData) {

@@ -34,5 +34,6 @@ export interface Obra {
 
 export interface BackupData {
     version: number;
+    updatedAt: string;
     obras: Obra[];
 }

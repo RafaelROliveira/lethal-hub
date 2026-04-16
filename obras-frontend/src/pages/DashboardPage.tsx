@@ -61,6 +61,23 @@ const statusLabels: Record<StatusObra, string> = {
     DROPADO: "Dropado",
 };
 
+function getLocalLastUpdatedAt(obras: Obra[]): string {
+    if (!obras.length) return "";
+
+    let latest = "";
+
+    for (const obra of obras) {
+        const value = obra.updatedAt || obra.createdAt || "";
+        if (value && Date.parse(value) > Date.parse(latest || "1970-01-01")) {
+            latest = value;
+        }
+    }
+
+    return latest;
+}
+
+
+
 function criarNovaObra(
     titulo: string,
     tipo: TipoObra,
@@ -262,18 +279,187 @@ export function DashboardPage() {
     }, [tab]);
 
 
-    // carregar obras do localStorage
-    useEffect(() => {
-        if (!user) return;
-        const loaded = loadObrasFromLocal(user.id);
-        setObras(loaded);
-    }, [user]);
+    const [hasLocalChanges, setHasLocalChanges] = useState(false);
+    const lastRemoteUpdatedAtRef = useRef<string | null>(null);
+    const [isInitialSyncDone, setIsInitialSyncDone] = useState(false);
+    const isApplyingRemoteRef = useRef(false);
+
+    function applyRemoteBackup(userId: string, backup: BackupData, updatedAt?: string) {
+        isApplyingRemoteRef.current = true;
+
+        importBackup(userId, backup);
+        const obrasAtualizadas = loadObrasFromLocal(userId);
+
+        setObras(obrasAtualizadas);
+        lastRemoteUpdatedAtRef.current = updatedAt ?? null;
+        setLocalSyncedAt(userId, updatedAt ?? null);
+        setHasLocalChanges(false);
+
+        isApplyingRemoteRef.current = false;
+    }
+
+    function getLocalSyncMetaKey(userId: string) {
+        return `lethalhub:backup-meta:${userId}`;
+    }
+
+    function getLocalSyncedAt(userId: string): string | null {
+        try {
+            return localStorage.getItem(getLocalSyncMetaKey(userId));
+        } catch {
+            return null;
+        }
+    }
+
+    function setLocalSyncedAt(userId: string, updatedAt: string | null) {
+        try {
+            if (!updatedAt) {
+                localStorage.removeItem(getLocalSyncMetaKey(userId));
+                return;
+            }
+
+            localStorage.setItem(getLocalSyncMetaKey(userId), updatedAt);
+        } catch {
+            // ignore
+        }
+    }
 
     function syncLocal(obrasAtualizadas: Obra[]) {
         if (!user) return;
+
         setObras(obrasAtualizadas);
         saveObrasToLocal(user.id, obrasAtualizadas);
+        setHasLocalChanges(true);
     }
+
+    // carregar obras do localStorage
+    useEffect(() => {
+        if (!user) return;
+        const currentUser = user;
+
+        async function initSync() {
+            try {
+                const localObras = loadObrasFromLocal(currentUser.id);
+                const remoto = await apiGetBackup();
+
+                if (!remoto?.data) {
+                    setObras(localObras);
+                    lastRemoteUpdatedAtRef.current = null;
+                    setHasLocalChanges(false);
+                    return;
+                }
+
+                const remotoTime = Date.parse(remoto.updatedAt || "");
+                const localSyncedAt = getLocalSyncedAt(currentUser.id);
+                const localSyncedTime = Date.parse(localSyncedAt || "");
+
+                if (Number.isNaN(localSyncedTime)) {
+                    applyRemoteBackup(currentUser.id, remoto.data, remoto.updatedAt);
+                } else if (!Number.isNaN(remotoTime) && remotoTime > localSyncedTime) {
+                    applyRemoteBackup(currentUser.id, remoto.data, remoto.updatedAt);
+                } else {
+                    setObras(localObras);
+                    lastRemoteUpdatedAtRef.current = remoto.updatedAt ?? null;
+                    setHasLocalChanges(false);
+                }
+            } catch (err) {
+                console.error("Erro na sincronização inicial:", err);
+
+                const localObras = loadObrasFromLocal(currentUser.id);
+                setObras(localObras);
+            } finally {
+                setIsInitialSyncDone(true);
+            }
+        }
+
+        setIsInitialSyncDone(false);
+        initSync();
+    }, [user]);
+
+    const autoBackupTimeout = useRef<number | null>(null);
+
+    useEffect(() => {
+        if (!user) return;
+        if (!isInitialSyncDone) return;
+        if (!hasLocalChanges) return;
+
+        if (autoBackupTimeout.current) {
+            clearTimeout(autoBackupTimeout.current);
+        }
+
+        autoBackupTimeout.current = window.setTimeout(async () => {
+            try {
+                const remotoAtual = await apiGetBackup();
+
+                if (remotoAtual?.updatedAt) {
+                    const remoteNow = Date.parse(remotoAtual.updatedAt);
+                    const knownRemote = Date.parse(lastRemoteUpdatedAtRef.current || "");
+
+                    if (
+                        !Number.isNaN(remoteNow) &&
+                        (Number.isNaN(knownRemote) || remoteNow > knownRemote)
+                    ) {
+                        console.warn("Conflito detectado: remoto mais novo que local.");
+                        applyRemoteBackup(user.id, remotoAtual.data, remotoAtual.updatedAt);
+                        return;
+                    }
+                }
+
+                const backup = exportBackup(user.id);
+                const result = await apiSaveBackup(backup);
+
+                lastRemoteUpdatedAtRef.current = result.updatedAt;
+                setLocalSyncedAt(user.id, result.updatedAt);
+                setHasLocalChanges(false);
+
+                console.log("Backup automático salvo.");
+            } catch (err) {
+                console.error("Erro no backup automático:", err);
+            }
+        }, 3000);
+
+        return () => {
+            if (autoBackupTimeout.current) {
+                clearTimeout(autoBackupTimeout.current);
+            }
+        };
+    }, [user, hasLocalChanges, obras, isInitialSyncDone]);
+
+
+
+    useEffect(() => {
+        if (!user) return;
+        if (!isInitialSyncDone) return;
+
+        const currentUser = user;
+
+        const interval = window.setInterval(async () => {
+            try {
+                const remoto = await apiGetBackup();
+                if (!remoto?.data) return;
+
+                const remotoTime = Date.parse(remoto.updatedAt || "");
+                const knownRemoteTime = Date.parse(lastRemoteUpdatedAtRef.current || "");
+
+                if (Number.isNaN(remotoTime)) return;
+
+                if (Number.isNaN(knownRemoteTime) || remotoTime > knownRemoteTime) {
+                    if (hasLocalChanges) {
+                        console.warn("Remoto mudou, mas há alterações locais pendentes.");
+                        return;
+                    }
+
+                    applyRemoteBackup(currentUser.id, remoto.data, remoto.updatedAt);
+                    console.log("Backup remoto mais novo aplicado automaticamente.");
+                }
+            } catch (err) {
+                console.error("Erro ao sincronizar backup automático:", err);
+            }
+        }, 15000);
+
+        return () => clearInterval(interval);
+    }, [user, hasLocalChanges, isInitialSyncDone]);
+
+
 
     function handleLogout() {
         logout();
@@ -288,7 +474,10 @@ export function DashboardPage() {
 
         try {
             const backup: BackupData = exportBackup(user.id);
-            await apiSaveBackup(backup);
+            const result = await apiSaveBackup(backup);
+
+            lastRemoteUpdatedAtRef.current = result.updatedAt;
+            setLocalSyncedAt(user.id, result.updatedAt);
             setMessage("Backup salvo na nuvem com sucesso.");
         } catch (err: any) {
             setError(err.message ?? "Erro ao salvar backup");
@@ -309,9 +498,8 @@ export function DashboardPage() {
                 setMessage("Você ainda não tem backup salvo na nuvem.");
                 return;
             }
-            importBackup(user.id, data as BackupData);
-            const obrasRestauradas = loadObrasFromLocal(user.id);
-            setObras(obrasRestauradas);
+
+            applyRemoteBackup(user.id, data.data as BackupData, data.updatedAt);
             setMessage("Backup restaurado com sucesso.");
         } catch (err: any) {
             setError(err.message ?? "Erro ao restaurar backup");
@@ -407,6 +595,7 @@ export function DashboardPage() {
                 importBackup(user.id, data);
                 const obrasRestauradas = loadObrasFromLocal(user.id);
                 setObras(obrasRestauradas);
+                setHasLocalChanges(true);
                 setMessage("Backup importado do arquivo com sucesso.");
             } catch (err) {
                 console.error(err);
@@ -419,6 +608,8 @@ export function DashboardPage() {
         reader.onerror = () => setError("Erro ao ler o arquivo de backup.");
         reader.readAsText(file);
     }
+
+
 
     // ====== MODAL ADICIONAR (Portal + mesmo CSS do editar) ======
     function AdicionarObraModal({ onClose }: { onClose: () => void }) {
@@ -433,6 +624,7 @@ export function DashboardPage() {
         const [capitulo, setCapitulo] = useState<string>("");
 
         const [imgOk, setImgOk] = useState(false);
+
 
         function salvar(e?: React.MouseEvent) {
             e?.preventDefault();
@@ -1357,7 +1549,7 @@ export function DashboardPage() {
 
                     <div className="footer-center">
                         <span>
-                            Criado por <strong>Gedes</strong> © 2025
+                            Criado por <strong>Rafael R. Oliveira</strong> © 2025
                         </span>
                     </div>
 
