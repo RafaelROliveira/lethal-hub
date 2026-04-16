@@ -61,21 +61,6 @@ const statusLabels: Record<StatusObra, string> = {
     DROPADO: "Dropado",
 };
 
-function getLocalLastUpdatedAt(obras: Obra[]): string {
-    if (!obras.length) return "";
-
-    let latest = "";
-
-    for (const obra of obras) {
-        const value = obra.updatedAt || obra.createdAt || "";
-        if (value && Date.parse(value) > Date.parse(latest || "1970-01-01")) {
-            latest = value;
-        }
-    }
-
-    return latest;
-}
-
 
 
 function criarNovaObra(
