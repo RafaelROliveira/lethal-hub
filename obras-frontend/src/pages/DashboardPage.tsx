@@ -11,24 +11,32 @@ import { useNavigate } from "react-router-dom";
 import {
     loadObrasFromLocal,
     saveObrasToLocal,
+    loadFoldersFromLocal,
+    addFolder,
+    renameFolder,
+    removeFolder,
     exportBackup,
     importBackup,
 } from "../features/obras/obrasLocalStorage";
-import type { Obra, StatusObra, TipoObra, BackupData } from "../types/backup";
+import type { Obra, Folder, StatusObra, TipoObra, BackupData } from "../types/backup";
 import { apiGetBackup, apiSaveBackup } from "../api/apiClient";
 import "./DashboardPage.css";
 
-
-import favIconOff from "../assets/favIconOffB.png";     // estrela vazia
-import favIconOn from "../assets/favIconOnB.png";    // estrela preenchida
-
-
-import editIcon from "../assets/icon-edit.png";
-import deleteIcon from "../assets/icon-delete.png";
-import viewIcon from "../assets/ler.png";
-import backupIcon from "../assets/nuvemB.png";
-import adicionar from "../assets/add.png";
-import sair from "../assets/sairB.png";
+import {
+    Star,
+    Pencil,
+    Trash2,
+    BookOpen,
+    Cloud,
+    Plus,
+    LogOut,
+    ChevronDown,
+    MoreVertical,
+    FolderPlus,
+    Folder as FolderIcon,
+    PanelTop,
+    PanelLeft,
+} from "lucide-react";
 import logo from "../assets/png2.png";
 
 import { toast } from "react-toastify";
@@ -44,14 +52,14 @@ type SortOption =
 
 type Filtro =
     | "TODOS"
-    | "FAVORITOS"
     | "EM_ANDAMENTO"
     | "EM_ESPERA"
     | "FINALIZADOS"
     | "CANCELADOS"
     | "DROPADOS";
 
-type Tab = "BACKUP" | "LISTA" | "ADICIONAR"; // mantido, mas não usamos mais "ADICIONAR"
+type Tab = "BACKUP" | "LISTA";
+type NavPosition = "top" | "side";
 
 const statusLabels: Record<StatusObra, string> = {
     EM_ANDAMENTO: "Em andamento",
@@ -61,7 +69,16 @@ const statusLabels: Record<StatusObra, string> = {
     DROPADO: "Dropado",
 };
 
+const SEM_PASTA_ID = "__sem_pasta__";
 
+const statusPillLabels: Record<Filtro, string> = {
+    TODOS: "Todos",
+    EM_ANDAMENTO: "Em andamento",
+    EM_ESPERA: "Em espera",
+    FINALIZADOS: "Finalizados",
+    CANCELADOS: "Cancelados",
+    DROPADOS: "Dropados",
+};
 
 function criarNovaObra(
     titulo: string,
@@ -72,7 +89,8 @@ function criarNovaObra(
     diaLancamento?: string,
     comentario?: string,
     linkUrl?: string,
-    capituloStr?: string
+    capituloStr?: string,
+    folderId?: string | null
 ): Obra {
     const agora = new Date().toISOString();
 
@@ -105,6 +123,7 @@ function criarNovaObra(
         imagemUrl: imagemUrl?.trim() || undefined,
         linkUrl: linkUrl?.trim() || undefined,
         capitulo: capituloNum,
+        folderId: folderId || null,
         createdAt: agora,
         updatedAt: agora,
     };
@@ -145,7 +164,6 @@ function useBodyScrollLock(locked: boolean) {
     }, [locked]);
 }
 
-
 /** Fecha no ESC enquanto `enabled` for true */
 function useEscapeToClose(enabled: boolean, onClose: () => void) {
     useEffect(() => {
@@ -158,6 +176,65 @@ function useEscapeToClose(enabled: boolean, onClose: () => void) {
         window.addEventListener("keydown", onKeyDown);
         return () => window.removeEventListener("keydown", onKeyDown);
     }, [enabled, onClose]);
+}
+
+/** Minimiza a nav de topo ao rolar pra baixo, maximiza ao rolar pra cima */
+function useNavScrollCollapse(enabled: boolean) {
+    const [collapsed, setCollapsed] = useState(false);
+
+    useEffect(() => {
+        if (!enabled) {
+            setCollapsed(false);
+            return;
+        }
+
+        let lastY = window.scrollY;
+        let ticking = false;
+
+        function update() {
+            const y = window.scrollY;
+            const delta = y - lastY;
+
+            if (y < 60) {
+                setCollapsed(false);
+            } else if (delta > 6) {
+                setCollapsed(true);
+            } else if (delta < -6) {
+                setCollapsed(false);
+            }
+
+            lastY = y;
+            ticking = false;
+        }
+
+        function onScroll() {
+            if (ticking) return;
+            ticking = true;
+            window.requestAnimationFrame(update);
+        }
+
+        window.addEventListener("scroll", onScroll, { passive: true });
+        return () => window.removeEventListener("scroll", onScroll);
+    }, [enabled]);
+
+    return [collapsed, setCollapsed] as const;
+}
+
+/** true enquanto a viewport estiver em largura de celular */
+function useIsMobile(breakpoint = 720) {
+    const [isMobile, setIsMobile] = useState(
+        () => typeof window !== "undefined" && window.innerWidth <= breakpoint
+    );
+
+    useEffect(() => {
+        const mq = window.matchMedia(`(max-width: ${breakpoint}px)`);
+        const onChange = () => setIsMobile(mq.matches);
+        onChange();
+        mq.addEventListener("change", onChange);
+        return () => mq.removeEventListener("change", onChange);
+    }, [breakpoint]);
+
+    return isMobile;
 }
 
 /** Modal base por Portal, reaproveitando teu CSS .modal-overlay e .modal-box */
@@ -186,101 +263,155 @@ export function DashboardPage() {
     const navigate = useNavigate();
 
     const [obras, setObras] = useState<Obra[]>([]);
+    const [folders, setFolders] = useState<Folder[]>([]);
     const [filtro, setFiltro] = useState<Filtro>("TODOS");
     const [tipoFiltro, setTipoFiltro] = useState<TipoObra | "TODOS">("TODOS");
     const [sortBy, setSortBy] = useState<SortOption>("FAV_FIRST");
     const [tab, setTab] = useState<Tab>("LISTA");
     const [search, setSearch] = useState("");
 
-    // status popover (qual card está com menu aberto)
+    // popovers dos cards (status rápido / menu editar-deletar)
     const [obraStatusMenuId, setObraStatusMenuId] = useState<string | null>(null);
+    const [obraMenuId, setObraMenuId] = useState<string | null>(null);
 
-    // filtro de dia da semana
     const [diaFiltro, setDiaFiltro] = useState<string>("TODOS");
 
-    // editar
     const [obraEditando, setObraEditando] = useState<Obra | null>(null);
-
-    // adicionar (modal)
     const [showAddModal, setShowAddModal] = useState(false);
+    const [showFolderModal, setShowFolderModal] = useState(false);
+    const [folderEditando, setFolderEditando] = useState<Folder | null>(null);
 
-    // feedback / backup
     const [loadingBackup, setLoadingBackup] = useState(false);
     const [message, setMessage] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
 
     const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-    const statsRowRef = useRef<HTMLElement | null>(null);
+    // ====== NAV: posição (topo/lateral) + colapso ao rolar ======
+    const [navPosition, setNavPosition] = useState<NavPosition>("top");
+
+    useEffect(() => {
+        try {
+            const saved = localStorage.getItem("lethalhub:nav-position");
+            if (saved === "top" || saved === "side") setNavPosition(saved);
+        } catch {
+            // ignore
+        }
+    }, []);
+
+    function toggleNavPosition() {
+        setNavPosition((atual) => {
+            const proxima: NavPosition = atual === "top" ? "side" : "top";
+            try {
+                localStorage.setItem("lethalhub:nav-position", proxima);
+            } catch {
+                // ignore
+            }
+            return proxima;
+        });
+    }
+
+    // no celular a nav sempre fica no topo, mesmo que a preferência salva seja lateral
+    const isMobile = useIsMobile();
+    const effectiveNavPosition: NavPosition = isMobile ? "top" : navPosition;
+
+    const [navCollapsed, setNavCollapsed] = useNavScrollCollapse(effectiveNavPosition === "top");
 
     // ====== ESC + scroll lock (para QUALQUER modal aberto) ======
-    const anyModalOpen = !!obraEditando || showAddModal;
+    const anyModalOpen = !!obraEditando || showAddModal || showFolderModal || !!folderEditando;
     useBodyScrollLock(anyModalOpen);
-    useEscapeToClose(anyModalOpen, () => {
-        // ESC fecha o que estiver aberto (prioridade: adicionar)
+    useEscapeToClose(anyModalOpen || !!obraStatusMenuId || !!obraMenuId, () => {
         if (showAddModal) setShowAddModal(false);
         else if (obraEditando) setObraEditando(null);
+        else if (showFolderModal) setShowFolderModal(false);
+        else if (folderEditando) setFolderEditando(null);
 
-        // também fecha popover de status
         setObraStatusMenuId(null);
+        setObraMenuId(null);
     });
 
-    // mobile (esconder stats ao descer)
+    // ====== seções colapsáveis (favoritos / pastas / sem pasta) ======
+    const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+
     useEffect(() => {
-        if (tab !== "LISTA") return;
+        if (!user) return;
+        try {
+            const raw = localStorage.getItem(`lethalhub:collapsed-sections:${user.id}`);
+            if (raw) setCollapsedSections(new Set(JSON.parse(raw)));
+        } catch {
+            // ignore
+        }
+    }, [user]);
 
-        const el = statsRowRef.current;
-        if (!el) return;
+    function toggleSection(id: string) {
+        setCollapsedSections((atual) => {
+            const nova = new Set(atual);
+            if (nova.has(id)) nova.delete(id);
+            else nova.add(id);
 
-        // só no mobile (mesma largura do seu CSS @media 720px)
-        const isMobile = window.matchMedia("(max-width: 720px)").matches;
-        if (!isMobile) return;
+            if (user) {
+                try {
+                    localStorage.setItem(
+                        `lethalhub:collapsed-sections:${user.id}`,
+                        JSON.stringify([...nova])
+                    );
+                } catch {
+                    // ignore
+                }
+            }
 
-        // garante estado limpo ao entrar
-        el.classList.remove("is-hidden");
+            return nova;
+        });
+    }
 
-        let lastY = window.scrollY;
+    // referências de cada seção pra rolar até ela (atalho de pasta)
+    const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
 
-        const onScroll = () => {
-            const y = window.scrollY;
-            const goingDown = y > lastY;
+    function jumpToSection(id: string) {
+        setTab("LISTA");
 
-            if (goingDown && y > 40) el.classList.add("is-hidden");
-            else el.classList.remove("is-hidden");
+        setCollapsedSections((atual) => {
+            if (!atual.has(id)) return atual;
+            const nova = new Set(atual);
+            nova.delete(id);
 
-            lastY = y;
-        };
+            if (user) {
+                try {
+                    localStorage.setItem(
+                        `lethalhub:collapsed-sections:${user.id}`,
+                        JSON.stringify([...nova])
+                    );
+                } catch {
+                    // ignore
+                }
+            }
 
-        window.addEventListener("scroll", onScroll, { passive: true });
+            return nova;
+        });
 
-        // aplica uma vez pra ficar consistente ao entrar na tela
-        onScroll();
+        // pequeno atraso pra garantir que a seção já esteja renderizada
+        // (troca de aba / expansão podem mudar o layout antes do scroll)
+        window.setTimeout(() => {
+            sectionRefs.current[id]?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 60);
+    }
 
-        return () => {
-            window.removeEventListener("scroll", onScroll);
-            // limpa ao sair da LISTA (evita voltar bugado)
-            el.classList.remove("is-hidden");
-        };
-    }, [tab]);
+    // quantos itens mostrar por seção antes do "mostrar mais"
+    const SECTION_PAGE_SIZE = 12;
+    const [sectionShowAll, setSectionShowAll] = useState<Set<string>>(new Set());
 
+    function expandSection(id: string) {
+        setSectionShowAll((atual) => new Set(atual).add(id));
+    }
 
-    const [hasLocalChanges, setHasLocalChanges] = useState(false);
     const lastRemoteUpdatedAtRef = useRef<string | null>(null);
-    const [isInitialSyncDone, setIsInitialSyncDone] = useState(false);
-    const isApplyingRemoteRef = useRef(false);
 
     function applyRemoteBackup(userId: string, backup: BackupData, updatedAt?: string) {
-        isApplyingRemoteRef.current = true;
-
         importBackup(userId, backup);
-        const obrasAtualizadas = loadObrasFromLocal(userId);
-
-        setObras(obrasAtualizadas);
+        setObras(loadObrasFromLocal(userId));
+        setFolders(loadFoldersFromLocal(userId));
         lastRemoteUpdatedAtRef.current = updatedAt ?? null;
         setLocalSyncedAt(userId, updatedAt ?? null);
-        setHasLocalChanges(false);
-
-        isApplyingRemoteRef.current = false;
     }
 
     function getLocalSyncMetaKey(userId: string) {
@@ -308,15 +439,52 @@ export function DashboardPage() {
         }
     }
 
+    // salva na nuvem automaticamente, com debounce, sempre que algo muda localmente
+    const autoSaveTimeoutRef = useRef<number | null>(null);
+
+    function scheduleAutoSave(userId: string) {
+        if (autoSaveTimeoutRef.current) {
+            clearTimeout(autoSaveTimeoutRef.current);
+        }
+
+        autoSaveTimeoutRef.current = window.setTimeout(async () => {
+            try {
+                const backup = exportBackup(userId);
+                const result = await apiSaveBackup(backup, lastRemoteUpdatedAtRef.current);
+
+                if (result.conflict) {
+                    applyRemoteBackup(userId, result.data, result.updatedAt);
+                    toast.warn(
+                        "Uma versão mais recente foi salva em outro dispositivo/aba — ela foi aplicada aqui."
+                    );
+                    return;
+                }
+
+                lastRemoteUpdatedAtRef.current = result.updatedAt;
+                setLocalSyncedAt(userId, result.updatedAt);
+            } catch (err) {
+                // falha silenciosa (ex: sem conexão) — a próxima edição tenta salvar de novo
+                console.warn("Não foi possível salvar automaticamente na nuvem:", err);
+            }
+        }, 2500);
+    }
+
+    useEffect(() => {
+        return () => {
+            if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
+        };
+    }, [user]);
+
     function syncLocal(obrasAtualizadas: Obra[]) {
         if (!user) return;
 
         setObras(obrasAtualizadas);
         saveObrasToLocal(user.id, obrasAtualizadas);
-        setHasLocalChanges(true);
+        scheduleAutoSave(user.id);
     }
 
-    // carregar obras do localStorage
+    // carrega obras/pastas do localStorage; puxa o backup da nuvem só na abertura,
+    // se ele for mais novo que o que já está salvo neste navegador
     useEffect(() => {
         if (!user) return;
         const currentUser = user;
@@ -324,16 +492,17 @@ export function DashboardPage() {
         async function initSync() {
             try {
                 const localObras = loadObrasFromLocal(currentUser.id);
+                const localFolders = loadFoldersFromLocal(currentUser.id);
                 const remoto = await apiGetBackup();
 
-                if (!remoto?.data) {
+                if (remoto.status !== "ok") {
                     setObras(localObras);
+                    setFolders(localFolders);
                     lastRemoteUpdatedAtRef.current = null;
-                    setHasLocalChanges(false);
                     return;
                 }
 
-                const remotoTime = Date.parse(remoto.updatedAt || "");
+                const remotoTime = Date.parse(remoto.updatedAt);
                 const localSyncedAt = getLocalSyncedAt(currentUser.id);
                 const localSyncedTime = Date.parse(localSyncedAt || "");
 
@@ -343,108 +512,19 @@ export function DashboardPage() {
                     applyRemoteBackup(currentUser.id, remoto.data, remoto.updatedAt);
                 } else {
                     setObras(localObras);
-                    lastRemoteUpdatedAtRef.current = remoto.updatedAt ?? null;
-                    setHasLocalChanges(false);
+                    setFolders(localFolders);
+                    lastRemoteUpdatedAtRef.current = remoto.updatedAt;
                 }
             } catch (err) {
                 console.error("Erro na sincronização inicial:", err);
 
-                const localObras = loadObrasFromLocal(currentUser.id);
-                setObras(localObras);
-            } finally {
-                setIsInitialSyncDone(true);
+                setObras(loadObrasFromLocal(currentUser.id));
+                setFolders(loadFoldersFromLocal(currentUser.id));
             }
         }
 
-        setIsInitialSyncDone(false);
         initSync();
     }, [user]);
-
-    const autoBackupTimeout = useRef<number | null>(null);
-
-    useEffect(() => {
-        if (!user) return;
-        if (!isInitialSyncDone) return;
-        if (!hasLocalChanges) return;
-
-        if (autoBackupTimeout.current) {
-            clearTimeout(autoBackupTimeout.current);
-        }
-
-        autoBackupTimeout.current = window.setTimeout(async () => {
-            try {
-                const remotoAtual = await apiGetBackup();
-
-                if (remotoAtual?.updatedAt) {
-                    const remoteNow = Date.parse(remotoAtual.updatedAt);
-                    const knownRemote = Date.parse(lastRemoteUpdatedAtRef.current || "");
-
-                    if (
-                        !Number.isNaN(remoteNow) &&
-                        (Number.isNaN(knownRemote) || remoteNow > knownRemote)
-                    ) {
-                        console.warn("Conflito detectado: remoto mais novo que local.");
-                        applyRemoteBackup(user.id, remotoAtual.data, remotoAtual.updatedAt);
-                        return;
-                    }
-                }
-
-                const backup = exportBackup(user.id);
-                const result = await apiSaveBackup(backup);
-
-                lastRemoteUpdatedAtRef.current = result.updatedAt;
-                setLocalSyncedAt(user.id, result.updatedAt);
-                setHasLocalChanges(false);
-
-                console.log("Backup automático salvo.");
-            } catch (err) {
-                console.error("Erro no backup automático:", err);
-            }
-        }, 3000);
-
-        return () => {
-            if (autoBackupTimeout.current) {
-                clearTimeout(autoBackupTimeout.current);
-            }
-        };
-    }, [user, hasLocalChanges, obras, isInitialSyncDone]);
-
-
-
-    useEffect(() => {
-        if (!user) return;
-        if (!isInitialSyncDone) return;
-
-        const currentUser = user;
-
-        const interval = window.setInterval(async () => {
-            try {
-                const remoto = await apiGetBackup();
-                if (!remoto?.data) return;
-
-                const remotoTime = Date.parse(remoto.updatedAt || "");
-                const knownRemoteTime = Date.parse(lastRemoteUpdatedAtRef.current || "");
-
-                if (Number.isNaN(remotoTime)) return;
-
-                if (Number.isNaN(knownRemoteTime) || remotoTime > knownRemoteTime) {
-                    if (hasLocalChanges) {
-                        console.warn("Remoto mudou, mas há alterações locais pendentes.");
-                        return;
-                    }
-
-                    applyRemoteBackup(currentUser.id, remoto.data, remoto.updatedAt);
-                    console.log("Backup remoto mais novo aplicado automaticamente.");
-                }
-            } catch (err) {
-                console.error("Erro ao sincronizar backup automático:", err);
-            }
-        }, 15000);
-
-        return () => clearInterval(interval);
-    }, [user, hasLocalChanges, isInitialSyncDone]);
-
-
 
     function handleLogout() {
         logout();
@@ -459,7 +539,15 @@ export function DashboardPage() {
 
         try {
             const backup: BackupData = exportBackup(user.id);
-            const result = await apiSaveBackup(backup);
+            const result = await apiSaveBackup(backup, lastRemoteUpdatedAtRef.current);
+
+            if (result.conflict) {
+                applyRemoteBackup(user.id, result.data, result.updatedAt);
+                setMessage(
+                    "Havia uma versão mais recente salva em outro dispositivo — ela foi aplicada. Revise e salve novamente se precisar."
+                );
+                return;
+            }
 
             lastRemoteUpdatedAtRef.current = result.updatedAt;
             setLocalSyncedAt(user.id, result.updatedAt);
@@ -478,13 +566,13 @@ export function DashboardPage() {
         setError(null);
 
         try {
-            const data = await apiGetBackup();
-            if (!data) {
+            const result = await apiGetBackup();
+            if (result.status !== "ok") {
                 setMessage("Você ainda não tem backup salvo na nuvem.");
                 return;
             }
 
-            applyRemoteBackup(user.id, data.data as BackupData, data.updatedAt);
+            applyRemoteBackup(user.id, result.data, result.updatedAt);
             setMessage("Backup restaurado com sucesso.");
         } catch (err: any) {
             setError(err.message ?? "Erro ao restaurar backup");
@@ -535,6 +623,38 @@ export function DashboardPage() {
         syncLocal(atualizadas);
     }
 
+    // ====== PASTAS ======
+    function handleCreateFolder(nome: string) {
+        if (!user) return;
+        const tituloFinal = nome.trim();
+        if (!tituloFinal) return;
+
+        const atualizadas = addFolder(user.id, tituloFinal);
+        setFolders(atualizadas);
+        scheduleAutoSave(user.id);
+        toast.success(`Pasta "${tituloFinal}" criada.`);
+    }
+
+    function handleRenameFolder(folderId: string, nome: string) {
+        if (!user) return;
+        const tituloFinal = nome.trim();
+        if (!tituloFinal) return;
+
+        const atualizadas = renameFolder(user.id, folderId, tituloFinal);
+        setFolders(atualizadas);
+        scheduleAutoSave(user.id);
+    }
+
+    function handleDeleteFolder(folderId: string) {
+        if (!user) return;
+        if (!confirm("Excluir esta pasta? As obras dela voltam para \"Sem pasta\".")) return;
+
+        const resultado = removeFolder(user.id, folderId);
+        setFolders(resultado.folders);
+        setObras(resultado.obras);
+        scheduleAutoSave(user.id);
+    }
+
     // backup em arquivo
     function handleExportJson() {
         if (!user) return;
@@ -578,9 +698,9 @@ export function DashboardPage() {
                 const text = reader.result as string;
                 const data = JSON.parse(text) as BackupData;
                 importBackup(user.id, data);
-                const obrasRestauradas = loadObrasFromLocal(user.id);
-                setObras(obrasRestauradas);
-                setHasLocalChanges(true);
+                setObras(loadObrasFromLocal(user.id));
+                setFolders(loadFoldersFromLocal(user.id));
+                scheduleAutoSave(user.id);
                 setMessage("Backup importado do arquivo com sucesso.");
             } catch (err) {
                 console.error(err);
@@ -594,7 +714,50 @@ export function DashboardPage() {
         reader.readAsText(file);
     }
 
+    // ====== MODAL NOVA/EDITAR PASTA ======
+    function FolderModal({
+        folder,
+        onClose,
+    }: {
+        folder: Folder | null;
+        onClose: () => void;
+    }) {
+        const [nome, setNome] = useState(folder?.nome ?? "");
 
+        function salvar(e?: React.FormEvent) {
+            e?.preventDefault();
+            const tituloFinal = nome.trim();
+            if (!tituloFinal) return;
+
+            if (folder) handleRenameFolder(folder.id, tituloFinal);
+            else handleCreateFolder(tituloFinal);
+
+            onClose();
+        }
+
+        return (
+            <ModalPortal onClose={onClose}>
+                <h3>{folder ? "Renomear pasta" : "Nova pasta"}</h3>
+
+                <form onSubmit={salvar}>
+                    <div className="modal-field">
+                        <label>Nome da pasta</label>
+                        <input
+                            autoFocus
+                            value={nome}
+                            onChange={(e) => setNome(e.target.value)}
+                            placeholder="ex: Assistindo agora"
+                        />
+                    </div>
+
+                    <div className="modal-actions">
+                        <button type="button" onClick={onClose}>Cancelar</button>
+                        <button type="submit">{folder ? "Salvar" : "Criar"}</button>
+                    </div>
+                </form>
+            </ModalPortal>
+        );
+    }
 
     // ====== MODAL ADICIONAR (Portal + mesmo CSS do editar) ======
     function AdicionarObraModal({ onClose }: { onClose: () => void }) {
@@ -607,6 +770,7 @@ export function DashboardPage() {
         const [comentario, setComentario] = useState("");
         const [linkUrl, setLinkUrl] = useState("");
         const [capitulo, setCapitulo] = useState<string>("");
+        const [folderId, setFolderId] = useState<string>("");
 
         const [imgOk, setImgOk] = useState(false);
 
@@ -627,7 +791,8 @@ export function DashboardPage() {
                 diaLancamento,
                 comentario,
                 linkUrl,
-                capitulo
+                capitulo,
+                folderId || null
             );
 
             syncLocal([...obras, nova]);
@@ -655,6 +820,8 @@ export function DashboardPage() {
                     <label>Título</label>
                     <input value={titulo} onChange={(e) => setTitulo(e.target.value)} />
                 </div>
+
+                <div className="modal-section-label">Mídia</div>
 
                 <div className="modal-field">
                     <label>Imagem URL</label>
@@ -721,6 +888,8 @@ export function DashboardPage() {
                     />
                 </div>
 
+                <div className="modal-section-label">Detalhes</div>
+
                 <div className="modal-row">
                     <div className="modal-field">
                         <label>Tipo</label>
@@ -771,18 +940,32 @@ export function DashboardPage() {
                     </div>
                 </div>
 
-                <div className="modal-field">
-                    <label>Dia de lançamento</label>
-                    <select value={diaLancamento} onChange={(e) => setDiaLancamento(e.target.value)}>
-                        <option value="">Nenhum</option>
-                        <option value="SEGUNDA">Segunda</option>
-                        <option value="TERCA">Terça</option>
-                        <option value="QUARTA">Quarta</option>
-                        <option value="QUINTA">Quinta</option>
-                        <option value="SEXTA">Sexta</option>
-                        <option value="SABADO">Sábado</option>
-                        <option value="DOMINGO">Domingo</option>
-                    </select>
+                <div className="modal-section-label">Organização</div>
+
+                <div className="modal-row">
+                    <div className="modal-field">
+                        <label>Dia de lançamento</label>
+                        <select value={diaLancamento} onChange={(e) => setDiaLancamento(e.target.value)}>
+                            <option value="">Nenhum</option>
+                            <option value="SEGUNDA">Segunda</option>
+                            <option value="TERCA">Terça</option>
+                            <option value="QUARTA">Quarta</option>
+                            <option value="QUINTA">Quinta</option>
+                            <option value="SEXTA">Sexta</option>
+                            <option value="SABADO">Sábado</option>
+                            <option value="DOMINGO">Domingo</option>
+                        </select>
+                    </div>
+
+                    <div className="modal-field">
+                        <label>Pasta</label>
+                        <select value={folderId} onChange={(e) => setFolderId(e.target.value)}>
+                            <option value="">Sem pasta</option>
+                            {folders.map((f) => (
+                                <option key={f.id} value={f.id}>{f.nome}</option>
+                            ))}
+                        </select>
+                    </div>
                 </div>
 
                 <div className="modal-field">
@@ -791,8 +974,8 @@ export function DashboardPage() {
                 </div>
 
                 <div className="modal-actions">
-                    <button onClick={onClose}>Cancelar</button>
-                    <button onClick={salvar}>Adicionar</button>
+                    <button type="button" onClick={onClose}>Cancelar</button>
+                    <button type="submit" onClick={salvar}>Adicionar</button>
                 </div>
             </ModalPortal>
         );
@@ -801,6 +984,7 @@ export function DashboardPage() {
     // ====== MODAL EDITAR (Portal + mesmo CSS) ======
     function abrirEdicao(obra: Obra) {
         setObraEditando(obra);
+        setObraMenuId(null);
     }
 
     function salvarEdicao(obraAtualizada: Obra) {
@@ -827,6 +1011,7 @@ export function DashboardPage() {
         const [linkUrl, setLinkUrl] = useState(obra.linkUrl || "");
         const [capitulo, setCapitulo] = useState(obra.capitulo?.toString() || "");
         const [diaLancamento, setDiaLancamento] = useState(obra.diaLancamento || "");
+        const [folderId, setFolderId] = useState(obra.folderId || "");
 
         function salvar() {
             const atualizado: Obra = {
@@ -840,6 +1025,7 @@ export function DashboardPage() {
                 linkUrl,
                 capitulo: capitulo ? Number(capitulo) : undefined,
                 diaLancamento,
+                folderId: folderId || null,
                 updatedAt: new Date().toISOString(),
             };
 
@@ -855,6 +1041,8 @@ export function DashboardPage() {
                     <input value={titulo} onChange={(e) => setTitulo(e.target.value)} />
                 </div>
 
+                <div className="modal-section-label">Mídia</div>
+
                 <div className="modal-field">
                     <label>Imagem URL</label>
                     <input value={imagemUrl} onChange={(e) => setImagemUrl(e.target.value)} />
@@ -864,6 +1052,8 @@ export function DashboardPage() {
                     <label>Link</label>
                     <input value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} />
                 </div>
+
+                <div className="modal-section-label">Detalhes</div>
 
                 <div className="modal-row">
                     <div className="modal-field">
@@ -915,18 +1105,32 @@ export function DashboardPage() {
                     </div>
                 </div>
 
-                <div className="modal-field">
-                    <label>Dia de lançamento</label>
-                    <select value={diaLancamento} onChange={(e) => setDiaLancamento(e.target.value)}>
-                        <option value="">Nenhum</option>
-                        <option value="SEGUNDA">Segunda</option>
-                        <option value="TERCA">Terça</option>
-                        <option value="QUARTA">Quarta</option>
-                        <option value="QUINTA">Quinta</option>
-                        <option value="SEXTA">Sexta</option>
-                        <option value="SABADO">Sábado</option>
-                        <option value="DOMINGO">Domingo</option>
-                    </select>
+                <div className="modal-section-label">Organização</div>
+
+                <div className="modal-row">
+                    <div className="modal-field">
+                        <label>Dia de lançamento</label>
+                        <select value={diaLancamento} onChange={(e) => setDiaLancamento(e.target.value)}>
+                            <option value="">Nenhum</option>
+                            <option value="SEGUNDA">Segunda</option>
+                            <option value="TERCA">Terça</option>
+                            <option value="QUARTA">Quarta</option>
+                            <option value="QUINTA">Quinta</option>
+                            <option value="SEXTA">Sexta</option>
+                            <option value="SABADO">Sábado</option>
+                            <option value="DOMINGO">Domingo</option>
+                        </select>
+                    </div>
+
+                    <div className="modal-field">
+                        <label>Pasta</label>
+                        <select value={folderId} onChange={(e) => setFolderId(e.target.value)}>
+                            <option value="">Sem pasta</option>
+                            {folders.map((f) => (
+                                <option key={f.id} value={f.id}>{f.nome}</option>
+                            ))}
+                        </select>
+                    </div>
                 </div>
 
                 <div className="modal-field">
@@ -935,87 +1139,49 @@ export function DashboardPage() {
                 </div>
 
                 <div className="modal-actions">
-                    <button onClick={onClose}>Cancelar</button>
-                    <button onClick={salvar}>Salvar</button>
+                    <button type="button" onClick={onClose}>Cancelar</button>
+                    <button type="submit" onClick={salvar}>Salvar</button>
                 </div>
             </ModalPortal>
         );
     }
 
-    // base pros contadores (respeita diaFiltro + search)
-    const statsBase = useMemo(() => {
-        let lista = [...obras];
-
-        if (tab === "LISTA") {
-            if (diaFiltro !== "TODOS") {
-                lista = lista.filter((obra) => obra.diaLancamento === diaFiltro);
-            }
-        }
-
-        if (search.trim()) {
-            const norm = search.toLowerCase();
-            lista = lista.filter((obra) => obra.titulo.toLowerCase().includes(norm));
-        }
-
-        return lista;
-    }, [obras, tab, diaFiltro, search]);
-
-    const stats = useMemo(() => {
-        return {
-            total: statsBase.length,
-            favoritos: statsBase.filter((o) => o.favorito).length,
-            emAndamento: statsBase.filter((o) => o.status === "EM_ANDAMENTO").length,
-            emEspera: statsBase.filter((o) => o.status === "EM_ESPERA").length,
-            finalizados: statsBase.filter((o) => o.status === "FINALIZADO").length,
-            cancelados: statsBase.filter((o) => o.status === "CANCELADO").length,
-            dropados: statsBase.filter((o) => o.status === "DROPADO").length,
-        };
-    }, [statsBase]);
-
-    // filtro + busca
+    // filtro + busca (status/tipo/dia/busca + ordenação) — sem "favoritos" aqui,
+    // favoritos agora é uma seção fixa, não um filtro
     const obrasFiltradas = useMemo(() => {
         let lista = [...obras];
 
-        // ===== filtros (status/favoritos)
-        if (tab === "LISTA") {
-            lista = lista.filter((obra) => {
-                switch (filtro) {
-                    case "FAVORITOS":
-                        return obra.favorito;
-                    case "EM_ANDAMENTO":
-                        return obra.status === "EM_ANDAMENTO";
-                    case "EM_ESPERA":
-                        return obra.status === "EM_ESPERA";
-                    case "FINALIZADOS":
-                        return obra.status === "FINALIZADO";
-                    case "CANCELADOS":
-                        return obra.status === "CANCELADO";
-                    case "DROPADOS":
-                        return obra.status === "DROPADO";
-                    case "TODOS":
-                    default:
-                        return true;
-                }
-            });
-
-            // filtro por dia
-            if (diaFiltro !== "TODOS") {
-                lista = lista.filter((obra) => obra.diaLancamento === diaFiltro);
+        lista = lista.filter((obra) => {
+            switch (filtro) {
+                case "EM_ANDAMENTO":
+                    return obra.status === "EM_ANDAMENTO";
+                case "EM_ESPERA":
+                    return obra.status === "EM_ESPERA";
+                case "FINALIZADOS":
+                    return obra.status === "FINALIZADO";
+                case "CANCELADOS":
+                    return obra.status === "CANCELADO";
+                case "DROPADOS":
+                    return obra.status === "DROPADO";
+                case "TODOS":
+                default:
+                    return true;
             }
+        });
 
-            // ===== filtro por TIPO
-            if (tipoFiltro !== "TODOS") {
-                lista = lista.filter((obra) => obra.tipo === tipoFiltro);
-            }
+        if (diaFiltro !== "TODOS") {
+            lista = lista.filter((obra) => obra.diaLancamento === diaFiltro);
         }
 
-        // busca
+        if (tipoFiltro !== "TODOS") {
+            lista = lista.filter((obra) => obra.tipo === tipoFiltro);
+        }
+
         if (search.trim()) {
             const norm = search.toLowerCase();
             lista = lista.filter((obra) => obra.titulo.toLowerCase().includes(norm));
         }
 
-        // ===== ordenação
         const statusRank: Record<StatusObra, number> = {
             EM_ANDAMENTO: 0,
             EM_ESPERA: 1,
@@ -1063,100 +1229,441 @@ export function DashboardPage() {
         });
 
         return lista;
-    }, [obras, filtro, tab, search, diaFiltro, tipoFiltro, sortBy]);
+    }, [obras, filtro, search, diaFiltro, tipoFiltro, sortBy]);
 
-    // ===== LAZY LOAD (infinite scroll) =====
-    const PAGE_SIZE = 24; // ajuste livre (ex: 16, 24, 32)
-    const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-    const loadMoreRef = useRef<HTMLDivElement | null>(null);
+    // contagens por status (respeita tipo/dia/busca, mas não o próprio status)
+    const statusCounts = useMemo(() => {
+        let base = [...obras];
+        if (diaFiltro !== "TODOS") base = base.filter((o) => o.diaLancamento === diaFiltro);
+        if (tipoFiltro !== "TODOS") base = base.filter((o) => o.tipo === tipoFiltro);
+        if (search.trim()) {
+            const norm = search.toLowerCase();
+            base = base.filter((o) => o.titulo.toLowerCase().includes(norm));
+        }
 
-    // sempre que a lista "muda" (filtros/busca/ordem/tab), reseta para o começo
-    useEffect(() => {
-        setVisibleCount(PAGE_SIZE);
-    }, [tab, filtro, tipoFiltro, sortBy, diaFiltro, search]);
+        return {
+            total: base.length,
+            emAndamento: base.filter((o) => o.status === "EM_ANDAMENTO").length,
+            emEspera: base.filter((o) => o.status === "EM_ESPERA").length,
+            finalizados: base.filter((o) => o.status === "FINALIZADO").length,
+            cancelados: base.filter((o) => o.status === "CANCELADO").length,
+            dropados: base.filter((o) => o.status === "DROPADO").length,
+        };
+    }, [obras, diaFiltro, tipoFiltro, search]);
 
-    // observer: quando chegar perto do fim, carrega mais
-    useEffect(() => {
-        if (tab !== "LISTA") return;
-        const el = loadMoreRef.current;
-        if (!el) return;
+    // agrupa em seções: cada pasta + Sem pasta
+    type Secao = { id: string; titulo: string; obras: Obra[]; folder?: Folder };
 
-        const obs = new IntersectionObserver(
-            (entries) => {
-                if (!entries[0]?.isIntersecting) return;
-                setVisibleCount((v) => Math.min(v + PAGE_SIZE, obrasFiltradas.length));
-            },
-            {
-                root: null,
-                // carrega antes de chegar no final (melhor sensação)
-                rootMargin: "700px 0px",
-                threshold: 0,
-            }
-        );
+    const secoes = useMemo<Secao[]>(() => {
+        const porPasta = new Map<string, Obra[]>();
+        for (const obra of obrasFiltradas) {
+            const chave = obra.folderId || SEM_PASTA_ID;
+            const lista = porPasta.get(chave) ?? [];
+            lista.push(obra);
+            porPasta.set(chave, lista);
+        }
 
-        obs.observe(el);
-        return () => obs.disconnect();
-    }, [tab, obrasFiltradas.length]);
+        const resultado: Secao[] = [];
 
-    const obrasVisiveis = useMemo(() => {
-        return obrasFiltradas.slice(0, visibleCount);
-    }, [obrasFiltradas, visibleCount]);
+        for (const folder of folders) {
+            const itens = porPasta.get(folder.id) ?? [];
+            if (itens.length === 0) continue;
+            resultado.push({ id: folder.id, titulo: folder.nome, obras: itens, folder });
+        }
+
+        const semPasta = porPasta.get(SEM_PASTA_ID) ?? [];
+        if (semPasta.length > 0) {
+            resultado.push({ id: SEM_PASTA_ID, titulo: "Sem pasta", obras: semPasta });
+        }
+
+        return resultado;
+    }, [obrasFiltradas, folders]);
 
     const pageTitle = tab === "BACKUP" ? "Backup" : "Minhas Obras";
 
-    return (
-        <div className="app-root">
-            {/* Navbar principal */}
-            <header className="topbar">
-                <div className="topbar-left">
-                    <button className="btnLogo" type="button" onClick={() => setTab("LISTA")}>
-                        <img className="topbar-logo" src={logo} alt="Logo" />
+    const lastSyncedAtRaw = user ? getLocalSyncedAt(user.id) : null;
+    const lastSyncedLabel =
+        lastSyncedAtRaw && !Number.isNaN(Date.parse(lastSyncedAtRaw))
+            ? new Date(lastSyncedAtRaw).toLocaleString("pt-BR")
+            : null;
+
+    // ====== render de um card de obra (reaproveitado em todas as seções) ======
+    function renderObraCard(obra: Obra) {
+        return (
+            <li key={obra.id}
+                className={`obra-card status-card-${obra.status.toLowerCase()}`}
+                style={
+                    obra.imagemUrl
+                        ? ({ ["--cover-url" as any]: `url(${obra.imagemUrl})` } as React.CSSProperties)
+                        : undefined
+                }>
+                {/* CAPA */}
+                <div className="obra-cover">
+                    {obra.imagemUrl && (
+                        <img
+                            src={obra.imagemUrl}
+                            alt={obra.titulo}
+                            loading="lazy"
+                            decoding="async"
+                            className="obra-cover-img"
+                        />
+                    )}
+
+                    {/* STATUS — indicador discreto */}
+                    <div className="obra-status-area">
+                        <button
+                            type="button"
+                            className={`obra-status-dot status-${obra.status.toLowerCase()}`}
+                            title={statusLabels[obra.status]}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setObraStatusMenuId((atual) => (atual === obra.id ? null : obra.id));
+                            }}
+                        />
+
+                        <div className={"status-pop " + (obraStatusMenuId === obra.id ? "" : "hidden")}>
+                            {(
+                                ["EM_ANDAMENTO", "EM_ESPERA", "FINALIZADO", "CANCELADO", "DROPADO"] as StatusObra[]
+                            )
+                                .filter((st) => st !== obra.status)
+                                .map((st) => (
+                                    <button
+                                        key={st}
+                                        className={`status-pop-item status-${st.toLowerCase()}`}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            atualizarStatus(obra.id, st);
+                                            setObraStatusMenuId(null);
+                                        }}
+                                        type="button"
+                                        title={statusLabels[st]}
+                                    >
+                                        {statusLabels[st]}
+                                    </button>
+                                ))}
+                        </div>
+                    </div>
+
+                    {/* FAVORITO — bottom-left */}
+                    <button
+                        className={"obra-fav-btn-bottom-left" + (obra.favorito ? " active" : "")}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            toggleFavorito(obra.id);
+                        }}
+                        type="button"
+                        title={obra.favorito ? "Remover dos favoritos" : "Adicionar aos favoritos"}
+                    >
+                        <Star
+                            size={24}
+                            strokeWidth={2.2}
+                            fill={obra.favorito ? "#8940ff" : "none"}
+                            color={obra.favorito ? "#8940ff" : "#ffffff"}
+                        />
                     </button>
 
-                    <div className="topbar-brand">
-                        <div className="topbar-title">Hub</div>
-                        <div className="topbar-subtitle">Bem-vindo, {user?.name}!</div>
+                    {/* NOTA bottom-right */}
+                    {typeof obra.nota === "number" && (
+                        <div
+                            className="obra-rating"
+                            title="Clique para ver o comentário"
+                            onClick={(e) => {
+                                e.stopPropagation();
+
+                                toast.info(
+                                    <div>
+                                        <strong>{obra.titulo}</strong>
+
+                                        <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9 }}>
+                                            {obra.comentario && obra.comentario.trim() !== ""
+                                                ? obra.comentario
+                                                : "Sem comentário"}
+                                        </div>
+                                    </div>
+                                );
+                            }}
+                        >
+                            {obra.nota === 10 ? "10" : obra.nota.toFixed(1)}
+                        </div>
+                    )}
+                </div>
+
+                {/* INFO */}
+                <div className="obra-info">
+                    <h3 className="obra-title2">{obra.titulo}</h3>
+
+                    <div className="obra-chapters">
+                        <span className="chap-label">Capítulo:</span>
+
+                        <div className="chap-controls">
+                            <button className="chap-btn" type="button" onClick={() => decrementarCapitulo(obra.id)}>
+                                -
+                            </button>
+
+                            <span className="chap-badge">{obra.capitulo ?? 0}</span>
+
+                            <button className="chap-btn" type="button" onClick={() => incrementarCapitulo(obra.id)}>
+                                +
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="obra-actions2">
+                        {obra.linkUrl && (
+                            <a
+                                href={obra.linkUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="btn-action btn-primary"
+                                title="Ler/Visualizar"
+                            >
+                                <BookOpen size={16} strokeWidth={2.2} />
+                                <span>Ler</span>
+                            </a>
+                        )}
+
+                        <div className="obra-menu-area">
+                            <button
+                                className="btn-action"
+                                type="button"
+                                title="Mais opções"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setObraMenuId((atual) => (atual === obra.id ? null : obra.id));
+                                }}
+                            >
+                                <MoreVertical size={16} strokeWidth={2.2} />
+                            </button>
+
+                            <div className={"status-pop obra-menu-pop " + (obraMenuId === obra.id ? "" : "hidden")}>
+                                <button
+                                    className="status-pop-item"
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        abrirEdicao(obra);
+                                    }}
+                                >
+                                    Editar
+                                </button>
+                                <button
+                                    className="status-pop-item"
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setObraMenuId(null);
+                                        removerObra(obra.id);
+                                    }}
+                                >
+                                    Deletar
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
+            </li>
+        );
+    }
 
-                <div className="topbar-right">
-                    {/* BACKUP */}
-                    <button
-                        className="topbar-backup"
-                        type="button"
-                        onClick={() => setTab("BACKUP")}
-                        title="Backup"
-                        aria-label="Backup"
-                    >
-                        <img src={backupIcon} alt="" />
-                        <span>Backup</span>
-                    </button>
+    function renderSecao(secao: Secao) {
+        const colapsada = collapsedSections.has(secao.id);
+        const mostrarTudo = sectionShowAll.has(secao.id);
+        const visiveis = mostrarTudo ? secao.obras : secao.obras.slice(0, SECTION_PAGE_SIZE);
+        const restantes = secao.obras.length - visiveis.length;
 
-                    {/* ADICIONAR (MODAL) */}
-                    <button
-                        className="topbar-add"
-                        type="button"
-                        onClick={() => setShowAddModal(true)}
-                        title="Adicionar"
-                        aria-label="Adicionar"
-                    >
-                        <img src={adicionar} alt="" />
-                        <span>Adicionar</span>
-                    </button>
+        return (
+            <section
+                className="obras-section"
+                key={secao.id}
+                ref={(el) => { sectionRefs.current[secao.id] = el; }}
+            >
+                <div
+                    className="obras-section-header"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => toggleSection(secao.id)}
+                    onKeyDown={(e) => e.key === "Enter" && toggleSection(secao.id)}
+                >
+                    <ChevronDown
+                        size={18}
+                        className={"obras-section-chevron " + (colapsada ? "is-collapsed" : "")}
+                    />
 
-                    {/* SAIR */}
-                    <button
-                        className="topbar-logout"
-                        onClick={handleLogout}
-                        type="button"
-                        title="Sair"
-                        aria-label="Sair"
-                    >
-                        <img src={sair} alt="" />
-                        <span>Sair</span>
-                    </button>
+                    {secao.folder && <FolderIcon size={16} strokeWidth={2} />}
+
+                    <h3 className="obras-section-title">{secao.titulo}</h3>
+                    <span className="obras-section-count">{secao.obras.length}</span>
+
+                    {secao.folder && (
+                        <div className="obras-section-actions">
+                            <button
+                                type="button"
+                                title="Renomear pasta"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setFolderEditando(secao.folder!);
+                                }}
+                            >
+                                <Pencil size={14} strokeWidth={2.2} />
+                            </button>
+                            <button
+                                type="button"
+                                title="Excluir pasta"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteFolder(secao.folder!.id);
+                                }}
+                            >
+                                <Trash2 size={14} strokeWidth={2.2} />
+                            </button>
+                        </div>
+                    )}
                 </div>
-            </header>
+
+                {!colapsada && (
+                    <>
+                        <ul className="obras-list">
+                            {visiveis.map(renderObraCard)}
+                        </ul>
+
+                        {restantes > 0 && (
+                            <button
+                                type="button"
+                                className="obras-section-more"
+                                onClick={() => expandSection(secao.id)}
+                            >
+                                Mostrar mais {restantes}
+                            </button>
+                        )}
+                    </>
+                )}
+            </section>
+        );
+    }
+
+    return (
+        <div className={"app-root" + (effectiveNavPosition === "side" ? " has-sidebar" : "")}>
+            {effectiveNavPosition === "top" ? (
+                <header className={"topbar" + (navCollapsed ? " is-collapsed" : "")}>
+                    <div
+                        className="topbar-clickzone"
+                        onClick={() => navCollapsed && setNavCollapsed(false)}
+                    >
+                        <div className="topbar-left">
+                            <button className="btnLogo" type="button" onClick={() => setTab("LISTA")}>
+                                <img className="topbar-logo" src={logo} alt="Logo" />
+                            </button>
+
+                            <div className="topbar-brand">
+                                <div className="topbar-title">Hub</div>
+                                <div className="topbar-subtitle">Bem-vindo, {user?.name}!</div>
+                            </div>
+                        </div>
+
+                        <div className="topbar-right">
+                            {!isMobile && (
+                                <button
+                                    className="topbar-icon-btn"
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        toggleNavPosition();
+                                    }}
+                                    title="Mover menu para a lateral"
+                                    aria-label="Mover menu para a lateral"
+                                >
+                                    <PanelLeft size={18} strokeWidth={2.2} />
+                                </button>
+                            )}
+
+                            <button
+                                className="topbar-backup"
+                                type="button"
+                                onClick={() => setTab("BACKUP")}
+                                title="Backup"
+                                aria-label="Backup"
+                            >
+                                <Cloud size={20} strokeWidth={2.2} />
+                                <span>Backup</span>
+                            </button>
+
+                            <button
+                                className="topbar-add"
+                                type="button"
+                                onClick={() => setShowAddModal(true)}
+                                title="Adicionar"
+                                aria-label="Adicionar"
+                            >
+                                <Plus size={20} strokeWidth={2.4} />
+                                <span>Adicionar</span>
+                            </button>
+
+                            <button
+                                className="topbar-logout"
+                                onClick={handleLogout}
+                                type="button"
+                                title="Sair"
+                                aria-label="Sair"
+                            >
+                                <LogOut size={20} strokeWidth={2.2} />
+                                <span>Sair</span>
+                            </button>
+                        </div>
+                    </div>
+                </header>
+            ) : (
+                <aside className="sidebar">
+                    <button className="btnLogo sidebar-logo-btn" type="button" onClick={() => setTab("LISTA")}>
+                        <img className="topbar-logo" src={logo} alt="Logo" />
+                        <div className="topbar-brand">
+                            <div className="topbar-title">Hub</div>
+                            <div className="topbar-subtitle">{user?.name}</div>
+                        </div>
+                    </button>
+
+                    <nav className="sidebar-nav">
+                        <button
+                            className={"sidebar-link" + (tab === "LISTA" ? " active" : "")}
+                            type="button"
+                            onClick={() => setTab("LISTA")}
+                        >
+                            <FolderIcon size={18} strokeWidth={2.2} />
+                            <span>Minhas Obras</span>
+                        </button>
+
+                        <button
+                            className={"sidebar-link" + (tab === "BACKUP" ? " active" : "")}
+                            type="button"
+                            onClick={() => setTab("BACKUP")}
+                        >
+                            <Cloud size={18} strokeWidth={2.2} />
+                            <span>Backup</span>
+                        </button>
+
+                        <button className="sidebar-link" type="button" onClick={() => setShowAddModal(true)}>
+                            <Plus size={18} strokeWidth={2.4} />
+                            <span>Adicionar</span>
+                        </button>
+                    </nav>
+
+                    <div className="sidebar-footer">
+                        <button
+                            className="sidebar-link"
+                            type="button"
+                            onClick={toggleNavPosition}
+                            title="Mover menu para o topo"
+                        >
+                            <PanelTop size={18} strokeWidth={2.2} />
+                            <span>Menu no topo</span>
+                        </button>
+
+                        <button className="sidebar-link sidebar-logout" type="button" onClick={handleLogout}>
+                            <LogOut size={18} strokeWidth={2.2} />
+                            <span>Sair</span>
+                        </button>
+                    </div>
+                </aside>
+            )}
 
             <div className="dashboard-container">
                 <section className="search-row">
@@ -1164,23 +1671,58 @@ export function DashboardPage() {
                 </section>
 
                 {tab === "BACKUP" && (
-                    <>
-                        <section className="dashboard-actions">
-                            <button onClick={handleSalvarBackup} disabled={loadingBackup}>
-                                {loadingBackup ? "Salvando backup..." : "Salvar backup na nuvem"}
-                            </button>
-                            <button onClick={handleRestaurarBackup} disabled={loadingBackup}>
-                                {loadingBackup ? "Restaurando..." : "Restaurar backup da nuvem"}
-                            </button>
+                    <div className="backup-grid">
+                        <section className="backup-panel">
+                            <div className="backup-panel-header">
+                                <Cloud className="backup-panel-icon" size={26} strokeWidth={2} />
+                                <div>
+                                    <h3>Backup na nuvem</h3>
+                                    <p>Sincroniza sua lista com a nuvem pra acessar de outro dispositivo.</p>
+                                </div>
+                            </div>
+
+                            <div className="backup-panel-actions">
+                                <button
+                                    className="backup-btn backup-btn-primary"
+                                    type="button"
+                                    onClick={handleSalvarBackup}
+                                    disabled={loadingBackup}
+                                >
+                                    {loadingBackup ? "Salvando..." : "Salvar na nuvem"}
+                                </button>
+                                <button
+                                    className="backup-btn"
+                                    type="button"
+                                    onClick={handleRestaurarBackup}
+                                    disabled={loadingBackup}
+                                >
+                                    {loadingBackup ? "Restaurando..." : "Restaurar da nuvem"}
+                                </button>
+                            </div>
+
+                            {lastSyncedLabel && (
+                                <p className="backup-panel-meta">
+                                    Última sincronização: {lastSyncedLabel}
+                                </p>
+                            )}
                         </section>
 
-                        <section className="dashboard-actions">
-                            <button type="button" onClick={handleExportJson}>
-                                Exportar backup (arquivo JSON)
-                            </button>
-                            <button type="button" onClick={handleClickImportFile}>
-                                Importar backup (arquivo JSON)
-                            </button>
+                        <section className="backup-panel">
+                            <div className="backup-panel-header">
+                                <div>
+                                    <h3>Backup em arquivo</h3>
+                                    <p>Exporta ou importa um arquivo .json com todas as suas obras.</p>
+                                </div>
+                            </div>
+
+                            <div className="backup-panel-actions">
+                                <button className="backup-btn" type="button" onClick={handleExportJson}>
+                                    Exportar (.json)
+                                </button>
+                                <button className="backup-btn" type="button" onClick={handleClickImportFile}>
+                                    Importar (.json)
+                                </button>
+                            </div>
 
                             <input
                                 ref={fileInputRef}
@@ -1190,7 +1732,7 @@ export function DashboardPage() {
                                 onChange={handleFileChange}
                             />
                         </section>
-                    </>
+                    </div>
                 )}
 
                 {message && <div className="info-box">{message}</div>}
@@ -1198,316 +1740,115 @@ export function DashboardPage() {
 
                 {tab === "LISTA" && (
                     <>
-                        {/* Contadores */}
-                        <section className="stats-row" ref={statsRowRef as React.RefObject<HTMLElement>}>
-                            <div
-                                className={"stat-card stat-total " + (filtro === "TODOS" ? "is-active" : "")}
-                                role="button"
-                                tabIndex={0}
-                                onClick={() => setFiltro("TODOS")}
-                                onKeyDown={(e) => e.key === "Enter" && setFiltro("TODOS")}
-                                title="Mostrar todos"
-                            >
-                                <div className="stat-number">{stats.total}</div>
-                                <div className="stat-label">Total</div>
+                        {/* toolbar única: busca + filtros + ordenar + nova pasta */}
+                        <section className="toolbar-row">
+                            <div className={"search-wrap " + (search.trim() ? "filter-active" : "")}>
+                                <input
+                                    type="text"
+                                    placeholder="Pesquisar..."
+                                    value={search}
+                                    onChange={(e) => setSearch(e.target.value)}
+                                />
                             </div>
 
-                            <div
-                                className={"stat-card stat-em_andamento " + (filtro === "EM_ANDAMENTO" ? "is-active" : "")}
-                                role="button"
-                                tabIndex={0}
-                                onClick={() => setFiltro("EM_ANDAMENTO")}
-                                onKeyDown={(e) => e.key === "Enter" && setFiltro("EM_ANDAMENTO")}
-                                title="Filtrar: Em andamento"
-                            >
-                                <div className="stat-number">{stats.emAndamento}</div>
-                                <div className="stat-label">Em andamento</div>
+                            <div className="stat-pills">
+                                {(["TODOS", "EM_ANDAMENTO", "EM_ESPERA", "FINALIZADOS", "CANCELADOS", "DROPADOS"] as Filtro[]).map((f) => {
+                                    const contagem =
+                                        f === "TODOS" ? statusCounts.total
+                                            : f === "EM_ANDAMENTO" ? statusCounts.emAndamento
+                                                : f === "EM_ESPERA" ? statusCounts.emEspera
+                                                    : f === "FINALIZADOS" ? statusCounts.finalizados
+                                                        : f === "CANCELADOS" ? statusCounts.cancelados
+                                                            : statusCounts.dropados;
+
+                                    return (
+                                        <button
+                                            key={f}
+                                            type="button"
+                                            className={"stat-pill" + (filtro === f ? " is-active" : "")}
+                                            onClick={() => setFiltro(f)}
+                                        >
+                                            {statusPillLabels[f]} ({contagem})
+                                        </button>
+                                    );
+                                })}
                             </div>
 
-                            <div
-                                className={"stat-card stat-em_espera " + (filtro === "EM_ESPERA" ? "is-active" : "")}
-                                role="button"
-                                tabIndex={0}
-                                onClick={() => setFiltro("EM_ESPERA")}
-                                onKeyDown={(e) => e.key === "Enter" && setFiltro("EM_ESPERA")}
-                                title="Filtrar: Em espera"
+                            <select
+                                className={"tb-select " + (tipoFiltro !== "TODOS" ? "filter-active" : "")}
+                                value={tipoFiltro}
+                                onChange={(e) => setTipoFiltro(e.target.value as any)}
                             >
-                                <div className="stat-number">{stats.emEspera}</div>
-                                <div className="stat-label">Em espera</div>
-                            </div>
+                                <option value="TODOS">Tipo: Todos</option>
+                                <option value="ANIME">Anime</option>
+                                <option value="MANGA">Mangá</option>
+                                <option value="MANHUA">Manhua</option>
+                                <option value="SERIE">Série</option>
+                                <option value="FILME">Filme</option>
+                                <option value="NOVEL">Novel</option>
+                                <option value="OUTRO">Outro</option>
+                            </select>
 
-                            <div
-                                className={"stat-card stat-finalizado " + (filtro === "FINALIZADOS" ? "is-active" : "")}
-                                role="button"
-                                tabIndex={0}
-                                onClick={() => setFiltro("FINALIZADOS")}
-                                onKeyDown={(e) => e.key === "Enter" && setFiltro("FINALIZADOS")}
-                                title="Filtrar: Finalizados"
+                            <select
+                                className={"tb-select " + (diaFiltro !== "TODOS" ? "filter-active" : "")}
+                                value={diaFiltro}
+                                onChange={(e) => setDiaFiltro(e.target.value)}
                             >
-                                <div className="stat-number">{stats.finalizados}</div>
-                                <div className="stat-label">Finalizados</div>
-                            </div>
+                                <option value="TODOS">Dia: Todos</option>
+                                <option value="SEGUNDA">Segunda</option>
+                                <option value="TERCA">Terça</option>
+                                <option value="QUARTA">Quarta</option>
+                                <option value="QUINTA">Quinta</option>
+                                <option value="SEXTA">Sexta</option>
+                                <option value="SABADO">Sábado</option>
+                                <option value="DOMINGO">Domingo</option>
+                            </select>
 
-                            <div
-                                className={"stat-card stat-cancelado " + (filtro === "CANCELADOS" ? "is-active" : "")}
-                                role="button"
-                                tabIndex={0}
-                                onClick={() => setFiltro("CANCELADOS")}
-                                onKeyDown={(e) => e.key === "Enter" && setFiltro("CANCELADOS")}
-                                title="Filtrar: Cancelados"
+                            <select
+                                className={"tb-select " + (sortBy !== "FAV_FIRST" ? "filter-active" : "")}
+                                value={sortBy}
+                                onChange={(e) => setSortBy(e.target.value as SortOption)}
                             >
-                                <div className="stat-number">{stats.cancelados}</div>
-                                <div className="stat-label">Cancelados</div>
-                            </div>
+                                <option value="FAV_FIRST">Ordem: Favoritos</option>
+                                <option value="ADICAO_ASC">Primeiros adicionados</option>
+                                <option value="ADICAO_DESC">Últimos adicionados</option>
+                                <option value="NOTA_DESC">Nota maior</option>
+                                <option value="NOTA_ASC">Nota menor</option>
+                                <option value="STATUS_ORDER">Status</option>
+                            </select>
 
-                            <div
-                                className={"stat-card stat-dropado " + (filtro === "DROPADOS" ? "is-active" : "")}
-                                role="button"
-                                tabIndex={0}
-                                onClick={() => setFiltro("DROPADOS")}
-                                onKeyDown={(e) => e.key === "Enter" && setFiltro("DROPADOS")}
-                                title="Filtrar: Dropados"
+                            <button
+                                type="button"
+                                className="tb-new-folder"
+                                onClick={() => setShowFolderModal(true)}
+                                title="Nova pasta"
                             >
-                                <div className="stat-number">{stats.dropados}</div>
-                                <div className="stat-label">Dropados</div>
-                            </div>
+                                <FolderPlus size={16} strokeWidth={2.2} />
+                                <span>Nova pasta</span>
+                            </button>
                         </section>
 
-                        {/* filtros + dia + busca */}
-                        <section className="filtros-row">
-                            <div className="filters-grid">
-                                {/* BLOCO 1 — FILTROS */}
-                                <div className="filters-block">
-                                    <span className="filters-label">Filtros:</span>
-
-                                    <select
-                                        className={"dia-select " + (diaFiltro !== "TODOS" ? "filter-active" : "")}
-                                        value={diaFiltro}
-                                        onChange={(e) => setDiaFiltro(e.target.value)}
+                        {secoes.length > 1 && (
+                            <nav className="folder-jump-row">
+                                {secoes.map((s) => (
+                                    <button
+                                        key={s.id}
+                                        type="button"
+                                        className="folder-jump-chip"
+                                        onClick={() => jumpToSection(s.id)}
                                     >
-                                        <option value="TODOS">Todos os dias</option>
-                                        <option value="SEGUNDA">Segunda</option>
-                                        <option value="TERCA">Terça</option>
-                                        <option value="QUARTA">Quarta</option>
-                                        <option value="QUINTA">Quinta</option>
-                                        <option value="SEXTA">Sexta</option>
-                                        <option value="SABADO">Sábado</option>
-                                        <option value="DOMINGO">Domingo</option>
-                                    </select>
+                                        {s.folder && <FolderIcon size={12} strokeWidth={2.4} />}
+                                        {s.titulo} ({s.obras.length})
+                                    </button>
+                                ))}
+                            </nav>
+                        )}
 
-                                    <select
-                                        className={"tipo-select " + (tipoFiltro !== "TODOS" ? "filter-active" : "")}
-                                        value={tipoFiltro}
-                                        onChange={(e) => setTipoFiltro(e.target.value as any)}
-                                    >
-                                        <option value="TODOS">Todos os tipos</option>
-                                        <option value="ANIME">Anime</option>
-                                        <option value="MANGA">Mangá</option>
-                                        <option value="MANHUA">Manhua</option>
-                                        <option value="SERIE">Série</option>
-                                        <option value="FILME">Filme</option>
-                                        <option value="NOVEL">Novel</option>
-                                        <option value="OUTRO">Outro</option>
-                                    </select>
-                                </div>
-
-                                {/* BLOCO 2 — ORDEM */}
-                                <div className="filters-block">
-                                    <span className="filters-label">Ordem:</span>
-
-                                    <select
-                                        className={"sort-select " + (sortBy !== "FAV_FIRST" ? "filter-active" : "")}
-                                        value={sortBy}
-                                        onChange={(e) => setSortBy(e.target.value as SortOption)}
-                                    >
-                                        <option value="FAV_FIRST">por Favoritos</option>
-                                        <option value="ADICAO_ASC">por Primeiros</option>
-                                        <option value="ADICAO_DESC">por Últimos</option>
-                                        <option value="NOTA_DESC">por Nota Maior</option>
-                                        <option value="NOTA_ASC">por Nota Menor</option>
-                                        <option value="STATUS_ORDER">por Status</option>
-                                    </select>
-                                </div>
-
-                                {/* BLOCO 3 — BUSCA */}
-                                <div className="filters-block filters-block--search">
-                                    <div className={"search-wrap " + (search.trim() ? "filter-active" : "")}>
-                                        <input
-                                            type="text"
-                                            placeholder="Pesquisar..."
-                                            value={search}
-                                            onChange={(e) => setSearch(e.target.value)}
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-                        </section>
-
-                        {/* Lista */}
                         <main>
                             {obrasFiltradas.length === 0 ? (
                                 <p className="empty-text">Nenhuma obra encontrada neste filtro.</p>
                             ) : (
-                                <>
-                                    <ul className="obras-list">
-                                        {obrasVisiveis.map((obra) => (
-                                            <li key={obra.id}
-                                                className={`obra-card status-card-${obra.status.toLowerCase()}`}
-                                                style={
-                                                    obra.imagemUrl
-                                                        ? ({ ["--cover-url" as any]: `url(${obra.imagemUrl})` } as React.CSSProperties)
-                                                        : undefined
-                                                }>
-                                                {/* CAPA */}
-                                                <div className="obra-cover">
-                                                    {obra.imagemUrl && (
-                                                        <img
-                                                            src={obra.imagemUrl}
-                                                            alt={obra.titulo}
-                                                            loading="lazy"
-                                                            decoding="async"
-                                                            className="obra-cover-img"
-                                                        />
-                                                    )}
-
-                                                    {/* STATUS topo-esquerda */}
-                                                    <div className="obra-status-area">
-                                                        <button
-                                                            type="button"
-                                                            className={`obra-status-pill status-${obra.status.toLowerCase()}`}
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setObraStatusMenuId((atual) => (atual === obra.id ? null : obra.id));
-                                                            }}
-                                                        >
-                                                            {statusLabels[obra.status]}
-                                                        </button>
-
-                                                        <div className={"status-pop " + (obraStatusMenuId === obra.id ? "" : "hidden")}>
-                                                            {(
-                                                                ["EM_ANDAMENTO", "EM_ESPERA", "FINALIZADO", "CANCELADO", "DROPADO"] as StatusObra[]
-                                                            )
-                                                                .filter((st) => st !== obra.status)
-                                                                .map((st) => (
-                                                                    <button
-                                                                        key={st}
-                                                                        className={`status-pop-item status-${st.toLowerCase()}`}
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation();
-                                                                            atualizarStatus(obra.id, st);
-                                                                            setObraStatusMenuId(null);
-                                                                        }}
-                                                                        type="button"
-                                                                        title={statusLabels[st]}
-                                                                    >
-                                                                        {statusLabels[st]}
-                                                                    </button>
-                                                                ))}
-                                                        </div>
-                                                    </div>
-
-                                                    {/* FAVORITO — bottom-left */}
-                                                    <button
-                                                        className={"obra-fav-btn-bottom-left" + (obra.favorito ? " active" : "")}
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            toggleFavorito(obra.id);
-                                                        }}
-                                                        type="button"
-                                                        title={obra.favorito ? "Remover dos favoritos" : "Adicionar aos favoritos"}
-                                                    >
-                                                        <img src={obra.favorito ? favIconOn : favIconOff} alt="Favorito" />
-                                                    </button>
-
-
-                                                    {/* NOTA bottom-right */}
-                                                    {typeof obra.nota === "number" && (
-                                                        <div
-                                                            className="obra-rating"
-                                                            title="Clique para ver o comentário"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-
-                                                                toast.info(
-                                                                    <div>
-                                                                        <strong>{obra.titulo}</strong>
-
-                                                                        <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9 }}>
-                                                                            {obra.comentario && obra.comentario.trim() !== ""
-                                                                                ? obra.comentario
-                                                                                : "Sem comentário"}
-                                                                        </div>
-                                                                    </div>
-                                                                );
-                                                            }}
-                                                        >
-                                                            {obra.nota === 10 ? "10" : obra.nota.toFixed(1)}
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                {/* INFO */}
-                                                <div className="obra-info">
-                                                    <h3 className="obra-title2">{obra.titulo}</h3>
-
-                                                    <div className="obra-chapters">
-                                                        <span className="chap-label">Capítulo:</span>
-
-                                                        <div className="chap-controls">
-                                                            <button className="chap-btn" type="button" onClick={() => decrementarCapitulo(obra.id)}>
-                                                                -
-                                                            </button>
-
-                                                            <span className="chap-badge">{obra.capitulo ?? 0}</span>
-
-                                                            <button className="chap-btn" type="button" onClick={() => incrementarCapitulo(obra.id)}>
-                                                                +
-                                                            </button>
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="obra-actions2">
-                                                        {obra.linkUrl && (
-                                                            <a
-                                                                href={obra.linkUrl}
-                                                                target="_blank"
-                                                                rel="noreferrer"
-                                                                className="btn-action btn-primary"
-                                                                title="Ler/Visualizar"
-                                                            >
-                                                                <img src={viewIcon} alt="" loading="lazy" decoding="async" />
-                                                                <span>Ler</span>
-                                                            </a>
-                                                        )}
-
-                                                        <button className="btn-action" type="button" onClick={() => abrirEdicao(obra)} title="Editar">
-                                                            <img src={editIcon} alt="" loading="lazy" decoding="async" />
-                                                        </button>
-
-                                                        <button
-                                                            className="btn-action btn-danger"
-                                                            type="button"
-                                                            onClick={() => removerObra(obra.id)}
-                                                            title="Deletar"
-                                                        >
-                                                            <img src={deleteIcon} alt="Deletar" loading="lazy" decoding="async" />
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            </li>
-                                        ))}
-                                    </ul>
-
-                                    {/* Sentinela do lazy load */}
-                                    <div ref={loadMoreRef} style={{ height: 1 }} />
-
-                                    {/* Indicador opcional */}
-                                    {visibleCount < obrasFiltradas.length && (
-                                        <div style={{ textAlign: "center", opacity: 0.75, fontSize: 12, margin: "14px 0 6px" }}>
-                                            Carregando mais...
-                                        </div>
-                                    )}
-                                </>
+                                secoes.map(renderSecao)
                             )}
                         </main>
                     </>
@@ -1525,24 +1866,30 @@ export function DashboardPage() {
                 />
             )}
 
+            {showFolderModal && <FolderModal folder={null} onClose={() => setShowFolderModal(false)} />}
+            {folderEditando && (
+                <FolderModal folder={folderEditando} onClose={() => setFolderEditando(null)} />
+            )}
+
             <footer className="app-footer">
                 <div className="footer-content">
                     <div className="footer-left">
-                        <strong>Lethal Hub</strong>
-                        <span>• Gerenciador de obras</span>
+                        <img src={logo} alt="" className="footer-logo" />
+                        <div className="footer-brand">
+                            <strong>Lethal Hub</strong>
+                            <span>Gerenciador de obras</span>
+                        </div>
                     </div>
 
                     <div className="footer-center">
-                        <span>
-                            Criado por <strong>Rafael R. Oliveira</strong> © 2025
-                        </span>
+                        Criado por <strong>Rafael R. Oliveira</strong> © 2025
                     </div>
 
                     <div className="footer-right">
                         <a href="https://github.com/RafaelROliveira/lethal-hub" target="_blank" rel="noreferrer">
                             Documentação
                         </a>
-
+                        <span className="footer-dot">•</span>
                         <a href="https://github.com/RafaelROliveira" target="_blank" rel="noreferrer">
                             Créditos
                         </a>

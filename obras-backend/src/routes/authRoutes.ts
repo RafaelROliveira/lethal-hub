@@ -40,16 +40,7 @@ router.post("/register", async (req, res) => {
   }
 
   try {
-    // validar código de acesso
-    const code = await AccessCodeModel.findOne({ code: accessCode });
-    if (!code) {
-      return res.status(400).json({ message: "Código de acesso inválido" });
-    }
-    if (code.used) {
-      return res.status(400).json({ message: "Código de acesso já utilizado" });
-    }
-
-    // verificar username/email únicos
+    // verificar username/email únicos (checagem otimista; a garantia final vem do unique index)
     const existingUsername = await UserModel.findOne({ username });
     if (existingUsername) {
       return res.status(400).json({ message: "Username já está em uso" });
@@ -60,21 +51,45 @@ router.post("/register", async (req, res) => {
       return res.status(400).json({ message: "E-mail já está em uso" });
     }
 
+    // reivindica o código de forma atômica, evitando que 2 requisições
+    // simultâneas usem o mesmo código de acesso (race condition)
+    const code = await AccessCodeModel.findOneAndUpdate(
+      { code: accessCode, used: false },
+      { used: true, usedAt: new Date() },
+      { new: true }
+    );
+
+    if (!code) {
+      const codeExists = await AccessCodeModel.exists({ code: accessCode });
+      return res.status(400).json({
+        message: codeExists ? "Código de acesso já utilizado" : "Código de acesso inválido",
+      });
+    }
+
     // criar usuário
     const passwordHash = await bcrypt.hash(password, 10);
 
-    const user = await UserModel.create({
-      username,
-      name,
-      email,
-      passwordHash,
-      role: "USER",
-    });
+    let user;
+    try {
+      user = await UserModel.create({
+        username,
+        name,
+        email,
+        passwordHash,
+        role: "USER",
+      });
+    } catch (createErr: any) {
+      // conta não foi criada: devolve o código de acesso
+      await AccessCodeModel.updateOne(
+        { _id: code._id },
+        { used: false, $unset: { usedAt: 1 } }
+      );
 
-    // marcar código como usado
-    code.used = true;
-    code.usedAt = new Date();
-    await code.save();
+      if (createErr?.code === 11000) {
+        return res.status(400).json({ message: "Username ou e-mail já está em uso" });
+      }
+      throw createErr;
+    }
 
     const token = generateToken(user._id.toString(), user.username, user.role);
 

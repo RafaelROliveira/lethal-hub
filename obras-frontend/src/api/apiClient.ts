@@ -41,6 +41,25 @@ type SaveBackupResponse = {
   updatedAt: string;
 };
 
+export type SaveBackupResult =
+  | { conflict: false; message: string; updatedAt: string }
+  | { conflict: true; data: BackupData; updatedAt: string };
+
+export type BackupFetchResult =
+  | { status: "ok"; data: BackupData; updatedAt: string }
+  | { status: "not_modified" }
+  | { status: "not_found" };
+
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 // headers como Record<string, string> para agradar o TS
 type JsonHeaders = Record<string, string>;
 
@@ -95,8 +114,10 @@ export async function apiRegister(
 
 // backup – salvar
 export async function apiSaveBackup(
-  backupData: unknown
-): Promise<SaveBackupResponse> {
+  backupData: unknown,
+  expectedUpdatedAt?: string | null,
+  opts?: { keepalive?: boolean }
+): Promise<SaveBackupResult> {
   const headers: JsonHeaders = {
     "Content-Type": "application/json",
     ...getAuthHeaders(),
@@ -105,38 +126,58 @@ export async function apiSaveBackup(
   const res = await fetch(`${API_URL}/backup`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ data: backupData }),
+    body: JSON.stringify({
+      data: backupData,
+      expectedUpdatedAt: expectedUpdatedAt ?? undefined,
+    }),
+    keepalive: opts?.keepalive,
   });
+
+  if (res.status === 409) {
+    const body = (await res.json()) as { data: BackupData; updatedAt: string };
+    return { conflict: true, data: body.data, updatedAt: body.updatedAt };
+  }
 
   if (!res.ok) {
     const errorText = await res.text();
-    throw new Error(errorText || "Erro ao salvar backup");
+    throw new ApiError(errorText || "Erro ao salvar backup", res.status);
   }
 
   const body = (await res.json()) as SaveBackupResponse;
-  return body;
+  return { conflict: false, ...body };
 }
 
-// backup – restaurar
-export async function apiGetBackup(): Promise<BackupApiResponse | null> {
+// backup – restaurar / sincronizar
+export async function apiGetBackup(
+  ifModifiedSince?: string | null
+): Promise<BackupFetchResult> {
   const headers: JsonHeaders = {
     "Content-Type": "application/json",
     ...getAuthHeaders(),
   };
+
+  if (ifModifiedSince) {
+    headers["If-Modified-Since"] = ifModifiedSince;
+  }
 
   const res = await fetch(`${API_URL}/backup`, {
     method: "GET",
     headers,
   });
 
+  if (res.status === 304) {
+    return { status: "not_modified" };
+  }
+
+  if (res.status === 404) {
+    return { status: "not_found" };
+  }
+
   if (!res.ok) {
-    if (res.status === 404) {
-      return null;
-    }
     const errorText = await res.text();
-    throw new Error(errorText || "Erro ao buscar backup");
+    throw new ApiError(errorText || "Erro ao buscar backup", res.status);
   }
 
   const body = (await res.json()) as BackupApiResponse;
-  return body;
+  return { status: "ok", data: body.data, updatedAt: body.updatedAt };
 }
