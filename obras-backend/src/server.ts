@@ -2,15 +2,12 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import compression from "compression";
-import rateLimit from "express-rate-limit";
 import { connectDB } from "./config/db";
 import authRoutes from "./routes/authRoutes";
 import backupRoutes from "./routes/backupRoutes";
 
 const app = express();
 
-app.use(compression());
 app.use(express.json());
 
 
@@ -26,12 +23,7 @@ app.use(
       if (!origin) return cb(null, true);
 
       // se não definiu nada, libera tudo (não recomendo em prod)
-      if (allowedOrigins.length === 0) {
-        console.warn(
-          `⚠️  CORS_ORIGIN não definida — liberando origem "${origin}" (NÃO recomendado em produção).`
-        );
-        return cb(null, true);
-      }
+      if (allowedOrigins.length === 0) return cb(null, true);
 
       if (allowedOrigins.includes(origin)) return cb(null, true);
 
@@ -43,17 +35,8 @@ app.use(
 );
 
 
-// limita tentativas de login/registro pra dificultar força bruta
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  limit: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { message: "Muitas tentativas. Tente novamente em alguns minutos." },
-});
-
 // rotas
-app.use("/auth", authLimiter, authRoutes);
+app.use("/auth", authRoutes);
 app.use("/backup", backupRoutes);
 
 // healthcheck

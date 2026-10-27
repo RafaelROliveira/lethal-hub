@@ -1,9 +1,7 @@
-import { type FormEvent, useState } from "react";
+import {type FormEvent, useState } from "react";
 import { apiLogin, apiRegister } from "../api/apiClient";
 import { useAuth } from "../auth/AuthContext";
 import { useNavigate } from "react-router-dom";
-import logo from "../assets/png2.png";
-import "./AuthPage.css";
 
 export function AuthPage() {
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -12,11 +10,6 @@ export function AuthPage() {
 
   const { login } = useAuth();
   const navigate = useNavigate();
-
-  function trocarModo(novoModo: "login" | "register") {
-    setMode(novoModo);
-    setError(null);
-  }
 
   async function handleLogin(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -74,121 +67,182 @@ export function AuthPage() {
   }
 
   return (
-    <div className="auth-page">
-      <div className="auth-card">
-        <img className="auth-logo" src={logo} alt="Lethal Hub" />
-
-        <h1 className="auth-title">Lethal Hub</h1>
-        <p className="auth-subtitle">
-          Organize animes, mangás, séries e muito mais. Seus dados ficam
-          salvos no navegador, com backup opcional na nuvem.
+    <div
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "1rem",
+      }}
+    >
+      <div
+        style={{
+          maxWidth: 400,
+          width: "100%",
+          border: "1px solid #ddd",
+          borderRadius: 8,
+          padding: "1.5rem",
+        }}
+      >
+        <h1 style={{ marginBottom: "0.5rem" }}>Controle de Obras</h1>
+        <p style={{ marginBottom: "1rem", fontSize: 14, color: "#555" }}>
+          Organize animes, mangás, séries e muito mais. Seus dados ficam salvos
+          no navegador, com backup opcional na nuvem.
         </p>
 
-        <div className="auth-tabs">
+        <div style={{ display: "flex", marginBottom: "1rem", gap: 8 }}>
           <button
             type="button"
-            className={"auth-tab" + (mode === "login" ? " active" : "")}
-            onClick={() => trocarModo("login")}
+            onClick={() => setMode("login")}
+            style={{
+              flex: 1,
+              padding: "0.5rem",
+              borderRadius: 4,
+              border: "1px solid #ccc",
+              background: mode === "login" ? "#eee" : "white",
+            }}
           >
             Entrar
           </button>
           <button
             type="button"
-            className={"auth-tab" + (mode === "register" ? " active" : "")}
-            onClick={() => trocarModo("register")}
+            onClick={() => setMode("register")}
+            style={{
+              flex: 1,
+              padding: "0.5rem",
+              borderRadius: 4,
+              border: "1px solid #ccc",
+              background: mode === "register" ? "#eee" : "white",
+            }}
           >
             Cadastrar
           </button>
         </div>
 
-        {error && <div className="auth-error">{error}</div>}
+        {error && (
+          <div
+            style={{
+              marginBottom: "0.75rem",
+              padding: "0.5rem",
+              background: "#ffe5e5",
+              color: "#b00000",
+              borderRadius: 4,
+              fontSize: 14,
+            }}
+          >
+            {error}
+          </div>
+        )}
 
         {mode === "login" ? (
           <form onSubmit={handleLogin}>
-            <div className="auth-field">
-              <label htmlFor="login">Usuário ou e-mail</label>
-              <input
-                id="login"
-                name="login"
-                type="text"
-                autoFocus
-                autoComplete="username"
-                disabled={isLoading}
-                required
-              />
+            <div style={{ marginBottom: "0.75rem" }}>
+              <label>
+                Usuário ou e-mail
+                <input
+                  name="login"
+                  type="text"
+                  required
+                  style={{ width: "100%", padding: "0.4rem", marginTop: 4 }}
+                />
+              </label>
             </div>
-
-            <div className="auth-field">
-              <label htmlFor="password">Senha</label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                disabled={isLoading}
-                required
-              />
+            <div style={{ marginBottom: "1rem" }}>
+              <label>
+                Senha
+                <input
+                  name="password"
+                  type="password"
+                  required
+                  style={{ width: "100%", padding: "0.4rem", marginTop: 4 }}
+                />
+              </label>
             </div>
-
-            <button className="auth-submit" type="submit" disabled={isLoading}>
+            <button
+              type="submit"
+              disabled={isLoading}
+              style={{
+                width: "100%",
+                padding: "0.5rem",
+                borderRadius: 4,
+                border: "none",
+                background: "#333",
+                color: "white",
+              }}
+            >
               {isLoading ? "Entrando..." : "Entrar"}
             </button>
           </form>
         ) : (
           <form onSubmit={handleRegister}>
-            <div className="auth-field">
-              <label htmlFor="username">Username (@)</label>
-              <input
-                id="username"
-                name="username"
-                type="text"
-                autoFocus
-                disabled={isLoading}
-                required
-              />
+            <div style={{ marginBottom: "0.75rem" }}>
+              <label>
+                Username (@)
+                <input
+                  name="username"
+                  type="text"
+                  required
+                  style={{ width: "100%", padding: "0.4rem", marginTop: 4 }}
+                />
+              </label>
             </div>
-
-            <div className="auth-field">
-              <label htmlFor="name">Nome</label>
-              <input id="name" name="name" type="text" disabled={isLoading} required />
+            <div style={{ marginBottom: "0.75rem" }}>
+              <label>
+                Nome
+                <input
+                  name="name"
+                  type="text"
+                  required
+                  style={{ width: "100%", padding: "0.4rem", marginTop: 4 }}
+                />
+              </label>
             </div>
-
-            <div className="auth-field">
-              <label htmlFor="email">E-mail</label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                disabled={isLoading}
-                required
-              />
+            <div style={{ marginBottom: "0.75rem" }}>
+              <label>
+                E-mail
+                <input
+                  name="email"
+                  type="email"
+                  required
+                  style={{ width: "100%", padding: "0.4rem", marginTop: 4 }}
+                />
+              </label>
             </div>
-
-            <div className="auth-field">
-              <label htmlFor="register-password">Senha</label>
-              <input
-                id="register-password"
-                name="password"
-                type="password"
-                autoComplete="new-password"
-                disabled={isLoading}
-                required
-              />
+            <div style={{ marginBottom: "0.75rem" }}>
+              <label>
+                Senha
+                <input
+                  name="password"
+                  type="password"
+                  required
+                  style={{ width: "100%", padding: "0.4rem", marginTop: 4 }}
+                />
+              </label>
             </div>
-
-            <div className="auth-field">
-              <label htmlFor="accessCode">Código de acesso</label>
-              <input
-                id="accessCode"
-                name="accessCode"
-                type="text"
-                disabled={isLoading}
-                required
-              />
+            <div style={{ marginBottom: "1rem" }}>
+              <label>
+                Código de acesso
+                <input
+                  name="accessCode"
+                  type="text"
+                  required
+                  style={{ width: "100%", padding: "0.4rem", marginTop: 4 }}
+                />
+              </label>
             </div>
-
-            <button className="auth-submit" type="submit" disabled={isLoading}>
+            <button
+              type="submit"
+              disabled={isLoading}
+              style={{
+                width: "100%",
+                padding: "0.5rem",
+                borderRadius: 4,
+                border: "none",
+                background: "#333",
+                color: "white",
+              }}
+            >
               {isLoading ? "Cadastrando..." : "Cadastrar"}
             </button>
           </form>

@@ -28,20 +28,12 @@ export interface Obra {
     linkUrl?: string;
     capitulo?: number;
     diaLancamento?: string;
-    folderId?: string | null;
     createdAt: string; // ISO
     updatedAt: string; // ISO
-}
-
-export interface Folder {
-    id: string;
-    nome: string;
-    createdAt: string; // ISO
 }
 
 export interface BackupData {
     version: number;
     updatedAt: string;
     obras: Obra[];
-    folders: Folder[];
 }
